@@ -1,0 +1,153 @@
+import React from 'react';
+import Svg, { Circle, G, Path, Polygon, Rect } from 'react-native-svg';
+
+export interface IconProps {
+  size?: number;
+  color?: string;
+}
+
+export const HeartIcon = ({ size = 24, color = '#FF4D6D' }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Path
+      d="M12 21s-7.5-4.7-9.3-9.1C1.1 8.1 3.2 4.8 6.6 4.8c2 0 3.6 1.1 4.4 2.4.8-1.3 2.4-2.4 4.4-2.4 3.4 0 5.5 3.3 3.9 7.1C19.5 16.3 12 21 12 21z"
+      fill={color}
+    />
+    <Path d="M8.2 7.6c-1 .2-1.8 1-2.1 2" stroke="#FFFFFF" strokeWidth={1.4} strokeLinecap="round" fill="none" opacity={0.75} />
+  </Svg>
+);
+
+export const CoinIcon = ({ size = 22, color = '#FFC531', dark = '#D9930B' }: IconProps & { dark?: string }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Circle cx={12} cy={12} r={10} fill={dark} />
+    <Circle cx={12} cy={11} r={9} fill={color} />
+    <Circle cx={12} cy={11} r={5.6} fill="none" stroke={dark} strokeWidth={1.6} opacity={0.5} />
+    <Path d="M12 8.4v5.2M9.8 10.4h4.4" stroke={dark} strokeWidth={1.8} strokeLinecap="round" />
+  </Svg>
+);
+
+export const GemIcon = ({ size = 22, color = '#4FD1FF' }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Polygon points="12,2 21,9.4 12,22 3,9.4" fill={color} />
+    <Polygon points="12,2 16.4,9.4 12,22 7.6,9.4" fill="#FFFFFF" opacity={0.32} />
+    <Polygon points="3,9.4 21,9.4 12,22" fill="#0B7FA8" opacity={0.22} />
+  </Svg>
+);
+
+export const StarIcon = ({ size = 22, color = '#FFC531' }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Path d="M12 2.6l2.9 5.9 6.5.9-4.7 4.6 1.1 6.4L12 17.4 6.2 20.4l1.1-6.4L2.6 9.4l6.5-.9z" fill={color} />
+  </Svg>
+);
+
+export const FlameIcon = ({ size = 24, color = '#FF6B35' }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Path d="M12 2c4.2 3.2 6.4 6.4 6.4 9.9A6.4 6.4 0 0112 22a6.4 6.4 0 01-6.4-6.1c0-2.3 1-4.3 2.6-6.3.4 1.4 1.2 2.4 2.3 2.9-.2-3.6.9-7 3.5-10.5z" fill={color} />
+    <Path d="M12 11.4c1.7 1.6 2.6 2.9 2.6 4.3A2.6 2.6 0 0112 18.3a2.6 2.6 0 01-2.6-2.6c0-1.4.9-2.7 2.6-4.3z" fill="#FFE07A" />
+  </Svg>
+);
+
+export const EggIcon = ({ size = 24, color = '#FFF3D9', spot = '#7BE495' }: IconProps & { spot?: string }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Path d="M12 2c4 0 7.2 6.2 7.2 10.6A7.2 7.2 0 0112 22a7.2 7.2 0 01-7.2-9.4C4.8 8.2 8 2 12 2z" fill={color} />
+    <Circle cx={9.6} cy={12.4} r={1.5} fill={spot} opacity={0.85} />
+    <Circle cx={14.2} cy={15.4} r={1.1} fill={spot} opacity={0.85} />
+    <Circle cx={13.6} cy={9.2} r={0.9} fill={spot} opacity={0.7} />
+  </Svg>
+);
+
+export const LockIcon = ({ size = 22, color = '#8A9AB3' }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Path d="M7.4 10.2V8.4a4.6 4.6 0 019.2 0v1.8" stroke={color} strokeWidth={2.2} fill="none" strokeLinecap="round" />
+    <Rect x={4.2} y={10} width={15.6} height={11} rx={3.2} fill={color} />
+    <Circle cx={12} cy={15} r={1.7} fill="#FFFFFF" />
+  </Svg>
+);
+
+export const CheckIcon = ({ size = 22, color = '#FFFFFF' }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Path d="M5 12.6l4.4 4.4L19 7.4" stroke={color} strokeWidth={3.4} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+  </Svg>
+);
+
+export const CloseIcon = ({ size = 22, color = '#FFFFFF' }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Path d="M6.4 6.4l11.2 11.2M17.6 6.4L6.4 17.6" stroke={color} strokeWidth={3.2} strokeLinecap="round" />
+  </Svg>
+);
+
+export const BackIcon = ({ size = 26, color = '#17263D' }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Path d="M14.6 5.4L8 12l6.6 6.6" stroke={color} strokeWidth={3.2} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+  </Svg>
+);
+
+export const PlayIcon = ({ size = 30, color = '#FFFFFF' }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Path d="M7.5 4.6l11.4 7.4-11.4 7.4z" fill={color} />
+  </Svg>
+);
+
+export const SoundOnIcon = ({ size = 24, color = '#17263D' }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Polygon points="4,9.4 7.6,9.4 12,5.4 12,18.6 7.6,14.6 4,14.6" fill={color} />
+    <Path d="M15 9.2a4 4 0 010 5.6M17.6 6.8a7.6 7.6 0 010 10.4" stroke={color} strokeWidth={2} strokeLinecap="round" fill="none" />
+  </Svg>
+);
+
+export const SoundOffIcon = ({ size = 24, color = '#8A9AB3' }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Polygon points="4,9.4 7.6,9.4 12,5.4 12,18.6 7.6,14.6 4,14.6" fill={color} />
+    <Path d="M15.4 9.6l5 4.8M20.4 9.6l-5 4.8" stroke={color} strokeWidth={2.2} strokeLinecap="round" />
+  </Svg>
+);
+
+export const MapIcon = ({ size = 24, color = '#3DDC84' }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Path d="M3 6.6l6-2.2 6 2.2 6-2.2v13l-6 2.2-6-2.2-6 2.2z" fill={color} opacity={0.28} />
+    <Path d="M9 4.4v13.4M15 6.6V20" stroke={color} strokeWidth={2} />
+    <Path d="M3 6.6l6-2.2v13.4l-6 2.2zM15 6.6l6-2.2v13l-6 2.2z" fill={color} />
+  </Svg>
+);
+
+export const TrophyIcon = ({ size = 24, color = '#FFC531' }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Path d="M7 4h10v5.4a5 5 0 01-10 0z" fill={color} />
+    <Path d="M7 5.4H4.6v1.8A3.4 3.4 0 008 10.6M17 5.4h2.4v1.8A3.4 3.4 0 0116 10.6" stroke={color} strokeWidth={1.8} fill="none" />
+    <Rect x={10} y={15} width={4} height={4} fill={color} />
+    <Rect x={7.4} y={18.6} width={9.2} height={2.4} rx={1.2} fill={color} />
+  </Svg>
+);
+
+export const SparkleIcon = ({ size = 20, color = '#FFE07A' }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Path d="M12 2.4l1.9 5.8 5.7 1.9-5.7 1.9L12 17.8l-1.9-5.8L4.4 10.1l5.7-1.9z" fill={color} />
+  </Svg>
+);
+
+export const PawIcon = ({ size = 22, color = '#7B5CFF' }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <G>
+      <Circle cx={7.4} cy={8.6} r={2.4} fill={color} />
+      <Circle cx={12} cy={6.6} r={2.6} fill={color} />
+      <Circle cx={16.6} cy={8.6} r={2.4} fill={color} />
+      <Path d="M12 11.4c3.4 0 6 2.4 6 5.2S15.4 21 12 21s-6-1.6-6-4.4 2.6-5.2 6-5.2z" fill={color} />
+    </G>
+  </Svg>
+);
+
+export const GearsIcon = ({ size = 24, color = '#4A5C77' }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Path
+      d="M12 2.6l1 2.3a7.6 7.6 0 012 .8l2.4-.8 1.5 2.6-1.7 1.9c.2.6.3 1.3.3 2s-.1 1.4-.3 2l1.7 1.9-1.5 2.6-2.4-.8a7.6 7.6 0 01-2 .8l-1 2.3h-3l-1-2.3a7.6 7.6 0 01-2-.8l-2.4.8-1.5-2.6 1.7-1.9a8.3 8.3 0 010-4l-1.7-1.9 1.5-2.6 2.4.8c.6-.4 1.3-.6 2-.8l1-2.3z"
+      fill={color}
+    />
+    <Circle cx={12} cy={11.4} r={3} fill="#FFFFFF" />
+  </Svg>
+);
+
+export const CrownIcon = ({ size = 24, color = '#FFC531' }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Polygon points="3,7.4 7.4,11 12,4.4 16.6,11 21,7.4 19,18.6 5,18.6" fill={color} />
+    <Rect x={5} y={18.6} width={14} height={2.2} rx={1.1} fill={color} />
+  </Svg>
+);

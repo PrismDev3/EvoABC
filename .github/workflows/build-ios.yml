@@ -1,0 +1,145 @@
+name: Build iOS IPA
+
+# The workflow runs automatically on every push to main, on version tags and
+# on demand from the Actions tab.
+#
+# The artifact this job produces is an UNSIGNED ipa. That is deliberate:
+# unsigned ipas need no Apple developer account in CI and install fine from a
+# Windows PC with Sideloadly or AltStore, which re-sign it with the user's own
+# Apple ID. A signed, directly installable build needs EAS with Apple
+# credentials, which is the optional second job at the bottom of this file.
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  workflow_dispatch:
+
+# Needed so the tag job can attach the ipa to a GitHub release.
+permissions:
+  contents: write
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-unsigned-ipa:
+    name: Build unsigned ipa
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Select the newest installed Xcode
+        run: |
+          echo "Installed Xcode versions:"
+          ls -d /Applications/Xcode*.app || true
+          XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -n 1)"
+          if [ -n "$XCODE_APP" ]; then
+            sudo xcode-select -s "$XCODE_APP"
+          fi
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Game logic self check
+        run: npm run selfcheck
+
+      # Expo generates the native Xcode project from app.json. The .xcworkspace
+      # and the CocoaPods install both come out of this step.
+      - name: Generate the native iOS project
+        run: npx expo prebuild --platform ios --clean
+
+      # `archive` (not `build`) is what puts EvoABC.app inside
+      # Products/Applications of the .xcarchive, which is exactly the folder
+      # the packaging step zips into Payload. Signing is switched off on
+      # purpose so the runner needs no Apple credentials.
+      - name: Build an unsigned archive
+        run: |
+          set -o pipefail
+          WORKSPACE="$(ls -d ios/*.xcworkspace | head -n 1)"
+          echo "Using workspace: $WORKSPACE"
+          xcodebuild \
+            -workspace "$WORKSPACE" \
+            -scheme EvoABC \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/EvoABC.xcarchive" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            archive
+
+      - name: Package the ipa
+        run: |
+          set -euo pipefail
+          APP_PATH="$RUNNER_TEMP/EvoABC.xcarchive/Products/Applications/EvoABC.app"
+          ls -la "$APP_PATH"
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          cp -R "$APP_PATH" "$RUNNER_TEMP/ipa/Payload/"
+          cd "$RUNNER_TEMP/ipa"
+          zip -qry "$GITHUB_WORKSPACE/EvoABC.ipa" Payload
+          ls -lh "$GITHUB_WORKSPACE/EvoABC.ipa"
+
+      - name: Upload the ipa artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: EvoABC-ipa
+          path: EvoABC.ipa
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach the ipa to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: EvoABC.ipa
+          generate_release_notes: true
+          draft: false
+
+  # Optional signed build for a directly installable ipa (TestFlight style or
+  # ad hoc). It only runs when an EXPO_TOKEN repository secret exists, and it
+  # never fails the run, so the unsigned ipa above is always available.
+  build-signed-ipa-eas:
+    name: Build signed ipa with EAS (optional)
+    runs-on: ubuntu-latest
+    needs: build-unsigned-ipa
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    continue-on-error: true
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Start an EAS build when the secret is configured
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "No EXPO_TOKEN secret set, skipping the signed EAS build."
+            echo "See the README for how to create one with expo.dev."
+            exit 0
+          fi
+          npx eas-cli@latest build --platform ios --profile production --non-interactive --no-wait
