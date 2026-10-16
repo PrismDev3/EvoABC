@@ -137,6 +137,18 @@ export const MicIcon = ({ size = 24, color = '#FF4D6D' }: IconProps) => (
   </Svg>
 );
 
+/** Bell, used for the practice reminder row. */
+export const BellIcon = ({ size = 24, color = '#FFC531' }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Path
+      d="M12 2.4c-3.3 0-5.7 2.5-5.7 5.8 0 3.4-.6 5-1.6 6.3-.5.7-.1 1.6.8 1.6h13c.9 0 1.3-.9.8-1.6-1-1.3-1.6-2.9-1.6-6.3 0-3.3-2.4-5.8-5.7-5.8z"
+      fill={color}
+    />
+    <Path d="M9.7 18.6a2.3 2.3 0 004.6 0" stroke={color} strokeWidth={2} strokeLinecap="round" fill="none" />
+    <Path d="M12 4.2V1.4" stroke={color} strokeWidth={1.7} strokeLinecap="round" />
+  </Svg>
+);
+
 export const MapIcon = ({ size = 24, color = '#3DDC84' }: IconProps) => (
   <Svg width={size} height={size} viewBox="0 0 24 24">
     <Path d="M3 6.6l6-2.2 6 2.2 6-2.2v13l-6 2.2-6-2.2-6 2.2z" fill={color} opacity={0.28} />

@@ -1,6 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as Notifications from 'expo-notifications';
 
 import { colors, fonts, radii, shadow, spacing, type } from '../theme';
 import { ScreenScaffold } from '../components/ScreenScaffold';
@@ -11,7 +12,7 @@ import { Hud } from '../components/Hud';
 import { GameModal } from '../components/GameModal';
 import { Bobbing, Confetti, PopIn } from '../art/Effects';
 import { Dino } from '../art/Dino';
-import { CoinIcon, EggIcon, FlameIcon, GearsIcon, GemIcon, MapIcon, PawIcon, PlayIcon, StarIcon, TrophyIcon } from '../art/Icons';
+import { BellIcon, CoinIcon, EggIcon, FlameIcon, GearsIcon, GemIcon, MapIcon, PawIcon, PlayIcon, StarIcon, TrophyIcon } from '../art/Icons';
 import { STAGES } from '../data/dinosaurs';
 import { getRegion } from '../data/levels';
 import { xpForLevel } from '../game/economy';
@@ -41,10 +42,34 @@ export default function HomeScreen() {
     canClaimDaily,
     dailyPreview,
     claimDaily,
+    remindersOn,
+    reminderPermission,
+    turnReminders,
+    openReminderSettings,
   } = useGame();
   const nav = useNav();
   const [dailyPhase, setDailyPhase] = useState<DailyPhase>(() => (canClaimDaily ? 'preview' : 'closed'));
   const [claimed, setClaimed] = useState<{ label: string; bonus: number; streakCount: number } | null>(null);
+
+  // Tapping a practice reminder should land on the level, not on the menu.
+  const notification = Notifications.useLastNotificationResponse();
+  const openedFromReminder = useRef(false);
+  useEffect(() => {
+    if (notification === null || notification === undefined || openedFromReminder.current) return;
+    const raw = notification.notification.date;
+    // iOS hands back milliseconds; anything smaller is seconds from an older build.
+    const delivered = raw > 1e11 ? raw : raw * 1000;
+    if (!Number.isFinite(delivered) || Date.now() - delivered > 10 * 60 * 1000) return;
+    openedFromReminder.current = true;
+    haptic('select');
+    nav.push('play', { levelId: nextLevel.id });
+  }, [nav, nextLevel.id, notification]);
+
+  const turnOnReminders = () => {
+    void turnReminders(true).then((granted) => {
+      if (!granted) openReminderSettings();
+    });
+  };
 
   const region = useMemo(() => getRegion(nextLevel.regionId), [nextLevel.regionId]);
   const nextStage = STAGES[Math.min(stageIndex + 1, STAGES.length - 1)];
@@ -191,6 +216,29 @@ export default function HomeScreen() {
         </Text>
       ) : null}
 
+      {profile.onboarded && !remindersOn ? (
+        <Pressable
+          onPress={turnOnReminders}
+          accessibilityRole="button"
+          accessibilityLabel="Turn on practice reminders"
+          style={({ pressed }) => [styles.reminderCard, { transform: [{ scale: pressed ? 0.98 : 1 }] }]}
+        >
+          <View style={styles.reminderBadge}>
+            <BellIcon size={22} color={colors.amberDark} />
+          </View>
+          <View style={styles.reminderText}>
+            <Text style={styles.reminderTitle}>
+              {reminderPermission === 'denied' ? 'Turn notifications back on' : 'Remind me to practise'}
+            </Text>
+            <Text style={type.small} numberOfLines={2}>
+              {reminderPermission === 'denied'
+                ? 'Notifications are off for EvoABC in the device settings.'
+                : 'Five nudges between 4 and 9 in the evening. Tap to switch them on.'}
+            </Text>
+          </View>
+        </Pressable>
+      ) : null}
+
       <View style={styles.summaryRow}>
         <SummaryChip icon={<CoinIcon size={18} />} value={profile.coins} label="coins" />
         <SummaryChip icon={<GemIcon size={18} />} value={profile.gems} label="gems" />
@@ -307,6 +355,21 @@ const styles = StyleSheet.create({
   tileRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg },
   tileRowTight: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
   testNudge: { ...type.bodyBold, color: colors.grapeDark, textAlign: 'center', marginTop: spacing.sm },
+  reminderCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginTop: spacing.md,
+    padding: spacing.md,
+    borderRadius: radii.lg,
+    borderWidth: 2,
+    borderColor: colors.cardLine,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    ...shadow(1),
+  },
+  reminderBadge: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF3D9' },
+  reminderText: { flex: 1, gap: 2 },
+  reminderTitle: { fontFamily: fonts.bodyBlack, fontSize: 15, color: colors.ink },
   tilePress: { flex: 1 },
   tile: { alignItems: 'center', justifyContent: 'center', paddingVertical: spacing.md, borderRadius: radii.lg, borderWidth: 2, borderColor: colors.cardLine, gap: 4, ...shadow(1) },
   tileLabel: { fontFamily: fonts.bodyBold, fontSize: 12, color: colors.ink },

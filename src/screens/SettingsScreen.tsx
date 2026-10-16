@@ -7,6 +7,7 @@ import { ChunkyButton, CounterChip, PillButton } from '../components/Button';
 import { Badge, Divider, InfoRow, Panel, ProgressBar, StatPill } from '../components/Cards';
 import { GameModal } from '../components/GameModal';
 import {
+  BellIcon,
   CheckIcon,
   CoinIcon,
   EggIcon,
@@ -22,6 +23,7 @@ import {
   TrophyIcon,
   VibrateIcon,
 } from '../art/Icons';
+import { CADENCES, cadenceFor, clockList } from '../game/reminders';
 import { useGame } from '../state/GameContext';
 import { useNav } from '../navigation/Navigator';
 import { TAG_LABELS, TAG_ORDER } from '../data/words';
@@ -85,8 +87,26 @@ function barGradient(percent: number): readonly [string, string, ...string[]] {
 
 export default function SettingsScreen() {
   const nav = useNav();
-  const { profile, updateSettings, resetProfile, totalStars, voices, voiceLabel, chooseVoice, previewVoice } = useGame();
+  const {
+    profile,
+    updateSettings,
+    resetProfile,
+    totalStars,
+    voices,
+    voiceLabel,
+    chooseVoice,
+    previewVoice,
+    reminderPermission,
+    reminderTimes,
+    remindersOn,
+    turnReminders,
+    chooseCadence,
+    sendTestReminder,
+    openReminderSettings,
+  } = useGame();
   const { settings, stats, streak } = profile;
+  const [testSent, setTestSent] = useState(false);
+  const cadence = cadenceFor(reminderTimes);
 
   const [gateOpen, setGateOpen] = useState(false);
   const [zoneUnlocked, setZoneUnlocked] = useState(false);
@@ -283,6 +303,73 @@ export default function SettingsScreen() {
       {zoneUnlocked ? (
         <>
           <Panel style={styles.block}>
+            <View style={styles.blockTitle}>
+              <BellIcon size={22} />
+              <Text style={type.h2}>Practice reminders</Text>
+            </View>
+            <Text style={type.small}>
+              Nudges from this phone, not from the internet: this device arranges them itself, so they arrive with the app closed and
+              need no account. Turning them on asks for the notification permission once.
+            </Text>
+            {reminderPermission === 'denied' ? (
+              <>
+                <Text style={type.small}>
+                  Notifications for EvoABC are switched off in the device settings. Turn them on there and reminders can be used.
+                </Text>
+                <ChunkyButton label="Open device settings" tone="bone" size="md" onPress={openReminderSettings} />
+              </>
+            ) : (
+              <>
+                <ToggleRow
+                  label="Remind me to practise"
+                  hint="Five a day gets the habit going"
+                  value={remindersOn}
+                  icon={<BellIcon size={20} color={remindersOn ? colors.jungle : colors.inkFaint} />}
+                  onChange={(next) => {
+                    void turnReminders(next);
+                  }}
+                />
+                {remindersOn ? (
+                  <>
+                    <Divider />
+                    <InfoRow label="Times" value={clockList(reminderTimes)} />
+                    <View style={styles.cadenceRow}>
+                      {CADENCES.map((option) => (
+                        <PillButton
+                          key={option.id}
+                          label={option.label}
+                          tone="grape"
+                          selected={cadence === option.id}
+                          onPress={() => chooseCadence(option.id)}
+                        />
+                      ))}
+                    </View>
+                    <Text style={type.small}>
+                      {CADENCES.find((option) => option.id === cadence)?.hint ?? 'Times are chosen for you and sent every day.'}
+                    </Text>
+                    <ChunkyButton
+                      label={testSent ? 'Test reminder sent' : 'Send a test reminder'}
+                      tone="gem"
+                      size="md"
+                      onPress={() => {
+                        void sendTestReminder().then(setTestSent);
+                      }}
+                    />
+                    <Text style={type.small}>
+                      {testSent
+                        ? 'Look at the top of the screen in about 15 seconds.'
+                        : 'A test arrives in 15 seconds, so a grown up can see exactly what the child will get.'}
+                    </Text>
+                    <Text style={type.small}>
+                      Reminders are stored on this device and stop as soon as the app is removed.
+                    </Text>
+                  </>
+                ) : null}
+              </>
+            )}
+          </Panel>
+
+          <Panel style={styles.block}>
             <Text style={type.h2}>Practice report</Text>
             <Text style={type.small}>Everything here comes from what your reader has done on this device.</Text>
             <View style={styles.pillRow}>
@@ -414,7 +501,7 @@ export default function SettingsScreen() {
           <EggIcon size={22} />
           <Text style={type.h2}>About EvoABC</Text>
         </View>
-        <InfoRow label="Version" value="1.1.0" />
+        <InfoRow label="Version" value="1.2.0" />
         <InfoRow label="Levels" value="29 regions, 174 levels" />
         <InfoRow label="Words" value="288 first grade words" />
         <InfoRow label="Storage" value="Saved on this device only" />
@@ -502,6 +589,7 @@ const styles = StyleSheet.create({
   },
   parentOpen: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md, flexWrap: 'wrap', marginTop: spacing.sm },
   pillRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
+  cadenceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.sm },
   tagRow: { paddingVertical: spacing.sm, gap: 4 },
   tagHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.sm },

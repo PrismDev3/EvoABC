@@ -29,6 +29,17 @@ import {
   wordsToReview,
 } from '../game/testplan';
 import { VoiceChoice, configureTts, describeCurrentVoice, loadVoices, speakLine, speakWord, stopSpeech, teachWord } from '../lib/tts';
+import {
+  PermissionState,
+  askForReminders,
+  cancelReminders,
+  clearBadge,
+  reminderPermission as readReminderPermission,
+  openNotificationSettings,
+  scheduleReminders,
+  sendTestReminder as sendTestReminderNotification,
+} from '../lib/notifications';
+import { ReminderCadence, timesForCadence } from '../game/reminders';
 import { lookupWord } from '../data/words';
 import { STAGES, skinById } from '../data/dinosaurs';
 import { CRATES, crateById } from '../data/crates';
@@ -103,6 +114,14 @@ export interface GameApi {
   chooseVoice: (id: string | null) => void;
   previewVoice: () => void;
   speakTestWord: (word: string) => void;
+  // practice reminders, scheduled on this phone
+  reminderPermission: PermissionState;
+  reminderTimes: number[];
+  remindersOn: boolean;
+  turnReminders: (on: boolean) => Promise<boolean>;
+  chooseCadence: (id: ReminderCadence) => void;
+  sendTestReminder: () => Promise<boolean>;
+  openReminderSettings: () => void;
   // housekeeping
   completeOnboarding: (starterSkinId: string) => void;
   updateSettings: (patch: Partial<Settings>) => void;
@@ -153,6 +172,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const [lastSummary, setLastSummary] = useState<SessionSummary | null>(null);
   const [testPlan, setTestPlan] = useState<TestPlanState | null>(null);
   const [voices, setVoices] = useState<VoiceChoice[]>([]);
+  const [reminderPermission, setReminderPermission] = useState<PermissionState>('unknown');
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Boot: load the save file, then wire sound and haptics to the settings.
@@ -177,6 +197,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       const installed = await loadVoices(loaded.settings.voiceId);
       if (!cancelled) setVoices(installed);
       if (loaded.settings.music && loaded.onboarded) startMusic();
+      // A reminder that was sitting on the app icon has been seen by now.
+      await clearBadge();
       setReady(true);
     };
     boot().catch((error) => {
@@ -689,6 +711,85 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     return { correct: profile.stats.correct, wrong: profile.stats.wrong };
   }, [profile.stats.correct, profile.stats.wrong]);
 
+  // ------------------------------------------------------------- reminders
+
+  /**
+   * One place keeps the phone's schedule in step with the settings. It runs on
+   * launch as well, because the copy changes as the streak grows and a reminder
+   * that has already been delivered on a previous day needs putting back.
+   */
+  useEffect(() => {
+    if (!ready) return;
+    let cancelled = false;
+    const sync = async () => {
+      const permission = await readReminderPermission();
+      if (cancelled) return;
+      setReminderPermission(permission);
+      if (!profile.settings.reminders || permission !== 'granted') {
+        await cancelReminders();
+        return;
+      }
+      await scheduleReminders({
+        times: profile.settings.reminderTimes,
+        streakCount: profile.streak.count,
+        playedToday: profile.lastPlayedDay === dayKey(),
+        wordsReady: nextLevel.words.length,
+      });
+    };
+    sync().catch((error) => {
+      console.warn('EvoABC could not arrange the practice reminders.', error);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    nextLevel.words.length,
+    profile.lastPlayedDay,
+    profile.settings.reminderTimes,
+    profile.settings.reminders,
+    profile.streak.count,
+    ready,
+  ]);
+
+  const turnReminders = useCallback(async (on: boolean): Promise<boolean> => {
+    if (!on) {
+      setProfile((current) => ({ ...current, settings: { ...current.settings, reminders: false } }));
+      await cancelReminders();
+      return false;
+    }
+    const permission = await askForReminders();
+    setReminderPermission(permission);
+    if (permission !== 'granted') return false;
+    setProfile((current) => ({ ...current, settings: { ...current.settings, reminders: true } }));
+    playSfx('daily');
+    haptic('success');
+    return true;
+  }, []);
+
+  const chooseCadence = useCallback((id: ReminderCadence) => {
+    setProfile((current) => ({
+      ...current,
+      settings: { ...current.settings, reminderTimes: timesForCadence(id) },
+    }));
+    playSfx('tap');
+    haptic('select');
+  }, []);
+
+  const sendTest = useCallback(async (): Promise<boolean> => {
+    const permission = await readReminderPermission();
+    setReminderPermission(permission);
+    const sent = await sendTestReminderNotification();
+    if (sent) {
+      playSfx('coin');
+      haptic('success');
+    }
+    return sent;
+  }, []);
+
+  const openReminderSettings = useCallback(() => {
+    openNotificationSettings();
+  }, []);
+
   const value = useMemo<GameApi>(
     () => ({
       ready,
@@ -739,6 +840,13 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       chooseVoice,
       previewVoice,
       speakTestWord,
+      reminderPermission,
+      reminderTimes: profile.settings.reminderTimes,
+      remindersOn: profile.settings.reminders && reminderPermission === 'granted',
+      turnReminders,
+      chooseCadence,
+      sendTestReminder: sendTest,
+      openReminderSettings,
     }),
     [
       ready,
@@ -788,6 +896,11 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       chooseVoice,
       previewVoice,
       speakTestWord,
+      reminderPermission,
+      turnReminders,
+      chooseCadence,
+      sendTest,
+      openReminderSettings,
     ],
   );
 

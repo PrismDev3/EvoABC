@@ -60,6 +60,16 @@ import {
   spokenSpelling,
 } from '../src/game/testplan';
 import { chunkWord, detectPattern, patternForWord } from '../src/game/phonics';
+import {
+  CADENCES,
+  DEFAULT_CADENCE,
+  DEFAULT_REMINDER_TIMES,
+  cadenceFor,
+  clockLabel,
+  planFitsIosLimit,
+  reminderPlan,
+  titlesAreDistinct,
+} from '../src/game/reminders';
 import { CUE_CATALOGS, cueSpec } from '../src/art/cues';
 import {
   SOUND_ANCHORS,
@@ -260,6 +270,60 @@ const stuck: Record<string, LevelProgress> = { [firstLevel.id]: { stars: 0, clea
 check('three attempts open the next level anyway', isLevelUnlocked(secondLevel.id, stuck));
 check('the recommendation is the first open level', nextPlayableLevel(cleared).id === secondLevel.id);
 check('a saved level keeps its words', getLevel(firstLevel.id).words.length === 5);
+
+console.log('\nPractice reminders');
+check('three reminder settings are offered', CADENCES.length === 3);
+check(
+  'every setting lists its times in order',
+  CADENCES.every((option) => option.times.every((minute, index) => index === 0 || minute > (option.times[index - 1] ?? 0))),
+);
+check(
+  'no reminder fires in the middle of the night',
+  CADENCES.every((option) => option.times.every((minute) => minute >= 900 && minute <= 1290)),
+  CADENCES.flatMap((option) => option.times).join(','),
+);
+check('the shipped setting is five a day', DEFAULT_CADENCE === 'five' && DEFAULT_REMINDER_TIMES.length === 5);
+check(
+  'the five a day times are 75 minutes apart',
+  DEFAULT_REMINDER_TIMES.every((minute, index) => index === 0 || minute - (DEFAULT_REMINDER_TIMES[index - 1] ?? 0) === 75),
+  DEFAULT_REMINDER_TIMES.join(','),
+);
+check('a clock label reads like a clock', clockLabel(960) === '4:00 PM' && clockLabel(1260) === '9:00 PM' && clockLabel(0) === '12:00 AM', clockLabel(960));
+check('each setting is recognised from its times', CADENCES.every((option) => cadenceFor(option.times) === option.id));
+check('a made up time list is not a setting', cadenceFor([1000, 1001]) === null);
+
+const planFive = reminderPlan({ times: DEFAULT_REMINDER_TIMES, streakCount: 0, playedToday: false, wordsReady: 5 });
+check('five reminders are planned', planFive.length === 5, String(planFive.length));
+check('the plan keeps the chosen times', planFive.map((reminder) => reminder.minute).join(',') === DEFAULT_REMINDER_TIMES.join(','));
+check('no two reminders say the same thing', titlesAreDistinct(planFive));
+check('the plan fits inside the iOS limit', planFitsIosLimit(planFive));
+check('the first reminder invites a session', planFive[0]?.role === 'open' && planFive[0]?.body.includes('5 words'), planFive[0]?.body ?? 'none');
+check('the last reminder is the one that defends the streak', planFive[4]?.role === 'last');
+check(
+  'a child with no streak is invited, not warned',
+  reminderPlan({ times: DEFAULT_REMINDER_TIMES, streakCount: 0, playedToday: false, wordsReady: 5 })[4]?.title === 'One word before bed',
+  reminderPlan({ times: DEFAULT_REMINDER_TIMES, streakCount: 0, playedToday: false, wordsReady: 5 })[4]?.title ?? 'none',
+);
+const streakPlan = reminderPlan({ times: DEFAULT_REMINDER_TIMES, streakCount: 6, playedToday: false, wordsReady: 5 });
+check('a streak is named in the last reminder', streakPlan[4]?.title.includes('6 day streak') === true, streakPlan[4]?.title ?? 'none');
+const playedPlan = reminderPlan({ times: DEFAULT_REMINDER_TIMES, streakCount: 6, playedToday: true, wordsReady: 5 });
+check('a child who already played is nudged once, not three times', playedPlan.length === 1, String(playedPlan.length));
+check('the friendly nudge still lands at the last time of day', playedPlan[0]?.minute === (DEFAULT_REMINDER_TIMES[4] ?? 0));
+check('reminders can be switched off completely', reminderPlan({ times: [], streakCount: 3, playedToday: false, wordsReady: 5 }).length === 0);
+const messyPlan = reminderPlan({ times: [1260, 960, 960, -5, 2000, 1000.6], streakCount: 2, playedToday: false, wordsReady: 5 });
+check('odd times are cleaned up and put in order', messyPlan.map((reminder) => reminder.minute).join(',') === '960,1001,1260', messyPlan.map((reminder) => reminder.minute).join(','));
+check(
+  'every reminder has a short title and a readable line',
+  [...planFive, ...streakPlan, ...playedPlan, ...messyPlan].every(
+    (reminder) => reminder.title.length > 4 && reminder.title.length <= 44 && reminder.body.length > 12 && reminder.body.length <= 90,
+  ),
+);
+check(
+  'reminder copy is plain text a child can read',
+  [...planFive, ...streakPlan, ...playedPlan, ...messyPlan].every(
+    (reminder) => /^[ -~]+$/.test(reminder.title) && /^[ -~]+$/.test(reminder.body),
+  ),
+);
 
 console.log('\nMy spelling test: reading the grown up list');
 const parsed = inspectWordList('cat, dog\nship');

@@ -191,6 +191,10 @@ export interface Settings {
   voiceName: string | null;
   /** How fast school words are dictated. */
   dictationRate: number;
+  /** Practice reminders, scheduled on this phone rather than sent from a server. */
+  reminders: boolean;
+  /** Times of day for those reminders, as minutes from midnight, in order. */
+  reminderTimes: number[];
 }
 
 /** One word of a hand entered school spelling list. */

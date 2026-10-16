@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { PlayerProfile, WordTag } from '../types';
 import { STARTER_COINS, STARTER_GEMS } from '../game/economy';
+import { DEFAULT_REMINDER_TIMES } from '../game/reminders';
 
 export const PROFILE_VERSION = 2;
 const STORAGE_KEY = 'evoabc:profile:v1';
@@ -38,7 +39,21 @@ export function defaultProfile(): PlayerProfile {
     progress: {},
     customLists: [],
     streak: { count: 0, best: 0, lastClaimDay: null, claimedToday: false, cycleIndex: 0 },
-    settings: { sfx: true, music: true, haptics: true, speech: true, speechRate: 0.82, voiceId: null, voiceName: null, dictationRate: 0.72 },
+    settings: {
+      sfx: true,
+      music: true,
+      haptics: true,
+      speech: true,
+      speechRate: 0.82,
+      voiceId: null,
+      voiceName: null,
+      dictationRate: 0.72,
+      // Reminders start off on purpose. iOS only shows the permission prompt
+      // once, so it is asked for when a grown up turns them on, or from the
+      // card on the home screen, rather than in the middle of first run.
+      reminders: false,
+      reminderTimes: DEFAULT_REMINDER_TIMES.slice(),
+    },
     stats: {
       correct: 0,
       wrong: 0,
@@ -55,6 +70,17 @@ export function defaultProfile(): PlayerProfile {
   };
 }
 
+/** A saved reminder schedule that is always usable and in order. */
+function sanitiseReminderTimes(value: unknown): number[] {
+  if (!Array.isArray(value)) return DEFAULT_REMINDER_TIMES.slice();
+  const clean = value
+    .filter((minute): minute is number => typeof minute === 'number' && Number.isFinite(minute))
+    .map((minute) => Math.round(minute))
+    .filter((minute) => minute >= 0 && minute < 1440);
+  const unique = Array.from(new Set(clean)).sort((a, b) => a - b);
+  return unique.length > 0 ? unique : DEFAULT_REMINDER_TIMES.slice();
+}
+
 /** Fills in anything a newer build added so old saves keep working. */
 export function migrateProfile(raw: unknown): PlayerProfile {
   const base = defaultProfile();
@@ -63,7 +89,13 @@ export function migrateProfile(raw: unknown): PlayerProfile {
   return {
     ...base,
     ...input,
-    settings: { ...base.settings, ...(input.settings ?? {}) },
+    settings: {
+      ...base.settings,
+      ...(input.settings ?? {}),
+      // A save from a build before reminders existed has no times saved, and a
+      // hand edited file could hold rubbish, so the list is checked here too.
+      reminderTimes: sanitiseReminderTimes((input.settings ?? {}).reminderTimes),
+    },
     streak: { ...base.streak, ...(input.streak ?? {}) },
     stats: {
       ...base.stats,
