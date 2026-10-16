@@ -1,13 +1,28 @@
 import * as Speech from 'expo-speech';
+import { Platform } from 'react-native';
+
+import { cleanWord, soundOutText, spokenLetters, spokenWord, tidySentence } from './phonemes';
 
 /**
  * Text to speech for EvoABC.
  *
- * This deliberately uses the voice built into the device: Apple's voices on
- * iOS and the Google voice engine on Android. Those are neural or high quality
- * system voices, so words sound like a person reading them rather than a
- * robotic desktop synthesiser. The helpers below rank every installed voice and
+ * This uses the voices built into the device, Apple's on iOS and the Google
+ * engine on Android, because those are the ones that sound like a person
+ * reading instead of a robot. The helpers below rank every installed voice and
  * pick the best one, and a grown up can override the choice in the parent zone.
+ *
+ * Three rules make the voice usable for a six year old:
+ *
+ * 1. Speeds are normalised in one place. iOS calls 0.5 normal speech and 1.0
+ *    very fast, while Android calls 1.0 normal, so an app speed of 1 means
+ *    normal here and is converted per platform. Passing an iOS rate straight
+ *    through is what made words rattle past far too quickly to follow.
+ * 2. Only one thing is ever spoken at a time. A new request cancels whatever
+ *    is playing and runs its own short sequence, so tapping three buttons in a
+ *    row never piles three voices on top of each other.
+ * 3. Words are taught the way a teacher does it: say the word, sound it out or
+ *    spell it with letter names, then say the word again, with a breath between
+ *    each step.
  */
 
 export interface VoiceChoice {
@@ -37,12 +52,31 @@ const PREFERRED_NAMES = [
   'Siri',
 ];
 
+/** App level speeds. 1 is normal grown up speech, lower is slower and kinder. */
+const DEFAULT_LINE_SPEED = 0.82;
+const DEFAULT_WORD_SPEED = 0.72;
+
 let voices: VoiceChoice[] = [];
 let chosenVoiceId: string | null = null;
 let speechEnabled = true;
-let lineRate = 0.85;
-let wordRate = 0.72;
+let lineSpeed = DEFAULT_LINE_SPEED;
+let wordSpeed = DEFAULT_WORD_SPEED;
 let loaded = false;
+
+/** The rate the platform calls normal speech. */
+function normalRate(): number {
+  return Platform.OS === 'ios' ? 0.5 : 1;
+}
+
+/** Converts an app speed into the number this platform understands. */
+function platformRate(speed: number): number {
+  const scaled = speed * normalRate();
+  const minimum = Platform.OS === 'ios' ? 0.1 : 0.3;
+  // iOS keeps climbing well past a comfortable reading pace, so it is capped
+  // below its own maximum no matter what the setting says.
+  const maximum = Platform.OS === 'ios' ? 0.7 : 1.5;
+  return Math.max(minimum, Math.min(maximum, scaled));
+}
 
 function scoreVoice(name: string, identifier: string, language: string, quality: string): { score: number; note: string } {
   const lower = `${name} ${identifier}`.toLowerCase();
@@ -141,7 +175,7 @@ export function defaultVoice(): VoiceChoice | null {
 
 export function setVoice(id: string | null): void {
   if (id !== null && voices.length > 0 && !voices.some((voice) => voice.id === id)) {
-    // Saved voice is gone, for example after an iOS update, so fall back.
+    // The saved voice is gone, for example after an iOS update, so fall back.
     chosenVoiceId = null;
     return;
   }
@@ -162,76 +196,194 @@ export function describeCurrentVoice(): string {
 
 export function configureTts(options: { enabled: boolean; speechRate: number; dictationRate: number; voiceId: string | null }): void {
   speechEnabled = options.enabled;
-  lineRate = options.speechRate;
-  wordRate = options.dictationRate;
+  lineSpeed = options.speechRate;
+  wordSpeed = options.dictationRate;
   setVoice(options.voiceId);
 }
 
-function utter(text: string, options: Speech.SpeechOptions = {}, onDone?: () => void): void {
-  if (!speechEnabled || text.trim().length === 0) {
-    onDone?.();
-    return;
+// --------------------------------------------------------------- speaking
+
+interface Step {
+  text: string;
+  /** App level speed, 1 being normal speech. */
+  speed: number;
+  pitch: number;
+  /** Quiet gap after this step, in milliseconds, before the next one. */
+  pauseAfter: number;
+}
+
+let queueToken = 0;
+let queueTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearQueueTimer(): void {
+  if (queueTimer !== null) {
+    clearTimeout(queueTimer);
+    queueTimer = null;
   }
-  const voiceId = getVoiceId();
-  try {
-    Speech.speak(text, {
-      rate: lineRate,
-      pitch: 1.02,
-      language: 'en-US',
-      useApplicationAudioSession: true,
-      ...(voiceId !== null ? { voice: voiceId } : {}),
-      ...options,
-      onDone: () => onDone?.(),
-      onError: () => onDone?.(),
-    });
-  } catch (error) {
-    console.warn('EvoABC could not speak.', error);
-    onDone?.();
-  }
+}
+
+/**
+ * A generous guess at how long a step takes, used only as a safety net for the
+ * engines that forget to tell us when they have finished.
+ */
+function estimateMs(step: Step): number {
+  const characters = Math.max(1, step.text.length);
+  return 700 + (characters * 105) / Math.max(0.3, step.speed) + step.pauseAfter;
+}
+
+/** Speaks a short sequence, cancelling whatever was playing before it. */
+function speakSteps(steps: Step[], onDone?: () => void): void {
+  const token = queueToken + 1;
+  queueToken = token;
+  clearQueueTimer();
+  Speech.stop().catch(() => {
+    // nothing was playing
+  });
+
+  const play = (index: number) => {
+    if (token !== queueToken) return;
+    const step = steps[index];
+    if (step === undefined || step.text.length === 0 || !speechEnabled) {
+      onDone?.();
+      return;
+    }
+    let finished = false;
+    const advance = () => {
+      if (finished || token !== queueToken) return;
+      finished = true;
+      clearQueueTimer();
+      if (step.pauseAfter <= 0) {
+        play(index + 1);
+        return;
+      }
+      queueTimer = setTimeout(() => {
+        if (token === queueToken) play(index + 1);
+      }, step.pauseAfter);
+    };
+
+    const voiceId = getVoiceId();
+    try {
+      Speech.speak(step.text, {
+        rate: platformRate(step.speed),
+        pitch: step.pitch,
+        language: 'en-US',
+        useApplicationAudioSession: true,
+        ...(voiceId !== null ? { voice: voiceId } : {}),
+        onDone: advance,
+        onStopped: advance,
+        onError: advance,
+      });
+    } catch (error) {
+      console.warn('EvoABC could not speak.', error);
+      advance();
+      return;
+    }
+    // Some engines never call back at all, so the queue always keeps moving.
+    queueTimer = setTimeout(advance, estimateMs(step));
+  };
+
+  play(0);
 }
 
 /** A spoken line, such as a rule explanation or a praise message. */
 export function speakLine(text: string, options: Speech.SpeechOptions = {}): void {
-  utter(text, options);
+  const clean = tidySentence(text);
+  if (clean.length === 0) return;
+  speakSteps([{ text: clean, speed: options.rate ?? lineSpeed, pitch: options.pitch ?? 1.05, pauseAfter: 0 }]);
 }
 
-/** The word on its own, slowed down so every sound is audible. */
+/** Says a word at the dictation speed. Pass rate to slow it down further. */
 export function speakWord(word: string, options: Speech.SpeechOptions = {}): void {
-  utter(word, { rate: options.rate ?? wordRate, pitch: 1, ...options });
+  const text = spokenWord(word);
+  if (text.length === 0) return;
+  speakSteps([{ text, speed: wordSpeed * (options.rate ?? 1), pitch: options.pitch ?? 1, pauseAfter: 0 }]);
 }
 
-/** "C, A, and T" then the whole word, which is how teachers correct a spelling. */
-export function spellOut(word: string, then?: () => void): void {
-  const letters = word
-    .split('')
-    .join(', ')
-    .replace(/, ([^,]*)$/, ' and $1');
-  utter(letters, { rate: Math.max(0.6, wordRate), pitch: 1 }, () => {
-    utter(word, { rate: wordRate, pitch: 1 }, then);
-  });
+/** The word as slowly as the setting allows, said twice so it can be copied. */
+export function speakWordSlow(word: string): void {
+  const text = spokenWord(word);
+  if (text.length === 0) return;
+  const speed = wordSpeed * 0.62;
+  speakSteps([
+    { text, speed, pitch: 1, pauseAfter: 520 },
+    { text, speed, pitch: 1, pauseAfter: 0 },
+  ]);
 }
 
-/** Says the word, spells it out loud and says it again. The teaching voice. */
-export function teachWord(word: string): void {
-  utter(word, { rate: wordRate, pitch: 1 }, () => {
-    spellOut(word);
-  });
-}
-
-export function speakSentence(sentence: string, word?: string): void {
-  if (word === undefined) {
-    utter(sentence, { rate: lineRate, pitch: 1.04 });
+/**
+ * Says the word, then each of its sounds, then the word twice more, which is
+ * the order a grown up uses at the kitchen table. Very short or very plain
+ * words have nothing to sound out, so they are simply said slowly.
+ */
+export function soundOut(word: string): void {
+  const text = spokenWord(word);
+  if (text.length === 0) return;
+  const sounds = soundOutText(word);
+  if (sounds === null) {
+    speakWordSlow(word);
     return;
   }
-  utter(`${sentence} ${word}.`, { rate: lineRate, pitch: 1.04 });
+  speakSteps([
+    { text, speed: wordSpeed, pitch: 1, pauseAfter: 460 },
+    { text: sounds, speed: wordSpeed * 0.95, pitch: 1, pauseAfter: 420 },
+    { text, speed: wordSpeed, pitch: 1, pauseAfter: 300 },
+    { text, speed: wordSpeed, pitch: 1, pauseAfter: 0 },
+  ]);
 }
 
+/** Spells the word out loud in letter names, then says it. */
+export function spellOut(word: string, then?: () => void): void {
+  const text = spokenWord(word);
+  const letters = spokenLetters(word);
+  if (letters.length === 0) {
+    onDoneAfterOnly(then);
+    return;
+  }
+  speakSteps(
+    [
+      { text: letters, speed: lineSpeed, pitch: 1, pauseAfter: text.length === 0 ? 0 : 480 },
+      ...(text.length === 0 ? [] : [{ text, speed: wordSpeed, pitch: 1, pauseAfter: 0 }]),
+    ],
+    then,
+  );
+}
+
+function onDoneAfterOnly(then?: () => void): void {
+  if (then !== undefined) setTimeout(then, 0);
+}
+
+/** Says the word, spells it with letter names, then says it again. */
+export function teachWord(word: string): void {
+  const text = spokenWord(word);
+  if (text.length === 0) return;
+  speakSteps([
+    { text, speed: wordSpeed, pitch: 1, pauseAfter: 520 },
+    { text: spokenLetters(word), speed: lineSpeed, pitch: 1, pauseAfter: 520 },
+    { text, speed: wordSpeed, pitch: 1, pauseAfter: 0 },
+  ]);
+}
+
+/** A hint sentence, then the word it belongs to. */
+export function speakSentence(sentence: string, word?: string): void {
+  const clean = tidySentence(sentence);
+  const text = word === undefined ? '' : spokenWord(word);
+  const steps: Step[] = [];
+  if (clean.length > 0) steps.push({ text: clean, speed: lineSpeed, pitch: 1.05, pauseAfter: text.length > 0 ? 420 : 0 });
+  if (text.length > 0) steps.push({ text, speed: wordSpeed, pitch: 1, pauseAfter: 0 });
+  if (steps.length === 0) return;
+  speakSteps(steps);
+}
+
+/** Stops the voice and empties the queue, used when a screen closes. */
 export function stopSpeech(): void {
+  queueToken += 1;
+  clearQueueTimer();
   Speech.stop().catch(() => {
     // nothing to stop
   });
 }
 
+/** The current app level speeds, for the settings screen. */
 export function ttsRates(): { line: number; word: number } {
-  return { line: lineRate, word: wordRate };
+  return { line: lineSpeed, word: wordSpeed };
 }

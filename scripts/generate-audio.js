@@ -1,20 +1,69 @@
 /**
- * Synthesizes every sound effect EvoABC plays, as 22050 Hz 16 bit mono WAV
+ * Synthesizes every sound effect EvoABC plays, as 44100 Hz 16 bit mono WAV
  * files in assets/audio. No dependencies, no downloads, and the app stays
  * fully offline because the audio ships inside the binary.
  *
- * Run with:  npm run assets     (or: node scripts/generate-audio.js)
+ * Everything here is built from soft, in tune tones on the C major pentatonic
+ * scale, so two sounds playing at once never clash. There are no raw sawtooth
+ * or square waves: those alias badly and come out buzzy and harsh, which is
+ * exactly what makes a games sound hard to listen to on a phone speaker. Each
+ * voice is a band limited stack of harmonics with a smooth attack and a natural
+ * decay, run through a gentle low pass, and the finished track is soft clipped
+ * and levelled so nothing ever distorts.
+ *
+ * Run with:  npm run assets      (or: node scripts/generate-audio.js)
+ * Check it:  npm run audio:check (peak, level, clicks and harshness)
  */
 
 const fs = require('fs');
 const path = require('path');
 
-const SAMPLE_RATE = 22050;
+const SAMPLE_RATE = 44100;
 const OUT_DIR = path.join(__dirname, '..', 'assets', 'audio');
 
 const frames = (seconds) => Math.max(1, Math.round(seconds * SAMPLE_RATE));
 
-// ------------------------------------------------------------------ track
+/**
+ * The only randomness here is the noise behind whooshes and crackles, and it
+ * is seeded so that running `npm run assets` twice produces byte for byte the
+ * same files. That is what lets CI rebuild the sounds and prove the committed
+ * WAVs really are the output of this script.
+ */
+let seed = 0x9e3779b9;
+const random = () => {
+  seed = (seed + 0x6d2b79f5) >>> 0;
+  let value = seed;
+  value = Math.imul(value ^ (value >>> 15), value | 1);
+  value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+  return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+};
+
+/** C major pentatonic across two octaves. Everything is written in these notes. */
+const NOTE = {
+  C4: 261.63,
+  D4: 293.66,
+  E4: 329.63,
+  G4: 392.0,
+  A4: 440.0,
+  C5: 523.25,
+  D5: 587.33,
+  E5: 659.25,
+  G5: 783.99,
+  A5: 880.0,
+  C6: 1046.5,
+  D6: 1174.66,
+  E6: 1318.51,
+  G6: 1567.98,
+  A6: 1760.0,
+  C7: 2093.0,
+};
+
+/**
+ * How much energy each partial of a struck note gets. A soft mallet or a music
+ * box is mostly the fundamental with a quick, gentle shimmer on top, which is
+ * warm rather than bright.
+ */
+const MALLET_SPECTRUM = [1, 0.42, 0.24, 0.14, 0.08, 0.05, 0.03, 0.02, 0.014, 0.01, 0.007, 0.005];
 
 function createTrack(lengthSeconds) {
   const data = new Float32Array(frames(lengthSeconds));
@@ -23,87 +72,169 @@ function createTrack(lengthSeconds) {
     if (index >= 0 && index < data.length) data[index] += value;
   };
 
-  /** Basic oscillator with harmonics, glide and a simple attack and release. */
-  const tone = ({
+  const at = (index) => (index >= 0 && index < data.length ? data[index] : 0);
+  /** Samples to keep after finishing. A loop trims its folded tail. */
+  let keep = data.length;
+
+  /** Smooth step in, so a note never starts with a step edge. */
+  const attackEnv = (position, seconds) => {
+    const length = Math.max(1, frames(seconds));
+    if (position >= length) return 1;
+    const x = position / length;
+    return x * x * (3 - 2 * x);
+  };
+
+  /** Smooth step out, so a note never ends with a step edge. */
+  const releaseEnv = (remaining, seconds) => attackEnv(remaining, seconds);
+
+  /**
+   * One warm struck note. Higher partials decay faster, exactly like a real
+   * bell, and any partial above 45 percent of Nyquist is skipped so the tone
+   * stays band limited instead of folding back as aliasing.
+   */
+  const note = ({
     freq,
     start = 0,
-    duration,
-    amp = 0.5,
-    type = 'sine',
-    glide = 0,
-    harmonics = [],
-    attack = 0.006,
-    release = 0.05,
-    tremolo = 0,
-    tremoloHz = 18,
+    duration = 0.35,
+    amp = 0.4,
+    decay = 0.5,
+    brightness = 1,
+    attack = 0.012,
+    vibrato = 0,
+    vibratoHz = 5.5,
+    detune = 0,
   }) => {
     const from = frames(start);
     const count = frames(duration);
-    let phase = 0;
+    const partials = MALLET_SPECTRUM.map((level, index) => {
+      const multiple = index + 1;
+      const partialFreq = freq * multiple * (1 + detune);
+      if (partialFreq > SAMPLE_RATE * 0.45) return null;
+      return { multiple, partialFreq, level: level * Math.pow(brightness, index) };
+    }).filter((partial) => partial !== null);
+
+    const phases = partials.map(() => 0);
     for (let i = 0; i < count; i += 1) {
-      const progress = i / count;
-      const currentFreq = Math.max(20, freq + glide * progress);
-      phase += (2 * Math.PI * currentFreq) / SAMPLE_RATE;
-      const wrapped = (phase / (2 * Math.PI)) % 1;
-      let value;
-      switch (type) {
-        case 'saw':
-          value = 2 * wrapped - 1;
-          break;
-        case 'square':
-          value = wrapped < 0.5 ? 1 : -1;
-          break;
-        case 'triangle':
-          value = 2 * Math.abs(2 * wrapped - 1) - 1;
-          break;
-        default:
-          value = Math.sin(phase);
+      const t = i / SAMPLE_RATE;
+      const inEnv = attackEnv(i, attack);
+      const outEnv = releaseEnv(count - i, Math.min(0.25, duration * 0.5));
+      const vib = vibrato > 0 ? 1 + vibrato * Math.sin(2 * Math.PI * vibratoHz * t) : 1;
+      let value = 0;
+      for (let p = 0; p < partials.length; p += 1) {
+        const partial = partials[p];
+        const bed = Math.exp(-t / (decay / (1 + 0.3 * (partial.multiple - 1))));
+        const omega = (2 * Math.PI * partial.partialFreq * vib) / SAMPLE_RATE;
+        phases[p] += omega;
+        value += bed * partial.level * Math.sin(phases[p]);
       }
-      for (const [multiple, level] of harmonics) value += level * Math.sin(phase * multiple);
-      const attackEnv = Math.min(1, i / Math.max(1, frames(attack)));
-      const releaseEnv = Math.min(1, (count - i) / Math.max(1, frames(release)));
-      const trem = tremolo > 0 ? 1 - tremolo / 2 + (tremolo / 2) * Math.sin((2 * Math.PI * tremoloHz * i) / SAMPLE_RATE) : 1;
-      mix(from + i, value * amp * attackEnv * releaseEnv * trem);
+      mix(from + i, value * amp * inEnv * outEnv);
     }
   };
 
-  /** Filtered noise, optionally sweeping its cutoff for whooshes and crackles. */
-  const noise = ({ start = 0, duration, amp = 0.35, cutoff = 1200, sweepTo = null, cutoffEnd = null, attack = 0.004, release = 0.06 }) => {
+  /** Soft sustained pad, used under the music and the evolution sweep. */
+  const pad = ({
+    freq,
+    start = 0,
+    duration = 2.5,
+    amp = 0.16,
+    attack = 0.45,
+    release = 0.7,
+    detune = 0.0015,
+  }) => {
     const from = frames(start);
     const count = frames(duration);
-    const endCutoff = cutoffEnd ?? sweepTo ?? cutoff;
-    let last = 0;
+    const voices = [freq, freq * (1 + detune), freq * 2];
+    const levels = [1, 0.6, 0.22];
+    const phases = voices.map(() => 0);
     for (let i = 0; i < count; i += 1) {
-      const progress = i / count;
-      const fc = cutoff + (endCutoff - cutoff) * progress;
-      const alpha = 1 - Math.exp((-2 * Math.PI * fc) / SAMPLE_RATE);
-      const white = Math.random() * 2 - 1;
-      last += alpha * (white - last);
-      const attackEnv = Math.min(1, i / Math.max(1, frames(attack)));
-      const releaseEnv = Math.min(1, (count - i) / Math.max(1, frames(release)));
-      mix(from + i, last * amp * attackEnv * releaseEnv * 3);
+      const inEnv = attackEnv(i, attack);
+      const outEnv = releaseEnv(count - i, release);
+      let value = 0;
+      for (let v = 0; v < voices.length; v += 1) {
+        const voiceFreq = voices[v];
+        if (voiceFreq > SAMPLE_RATE * 0.45) continue;
+        phases[v] += (2 * Math.PI * voiceFreq) / SAMPLE_RATE;
+        value += levels[v] * Math.sin(phases[v]);
+      }
+      mix(from + i, value * amp * inEnv * outEnv);
     }
   };
 
-  /** Tiny transient used for rattles, cracks and clicks. */
-  const click = ({ start = 0, duration = 0.02, amp = 0.5 }) => {
-    noise({ start, duration, amp, cutoff: 3000, cutoffEnd: 900, attack: 0.0005, release: duration * 0.8 });
+  /** A short swell of soft filtered noise, used for air and crackles. */
+  const air = ({ start = 0, duration = 0.3, amp = 0.2, cutoff = 900, attack = 0.05, release = 0.12, round = 0 }) => {
+    const from = frames(start);
+    const count = frames(duration);
+    const alpha = 1 - Math.exp((-2 * Math.PI * cutoff) / SAMPLE_RATE);
+    let low = 0;
+    let low2 = 0;
+    for (let i = 0; i < count; i += 1) {
+      const white = random() * 2 - 1;
+      low += alpha * (white - low);
+      low2 += alpha * (low - low2);
+      // A rounded window keeps the noise gentle instead of clicky.
+      const shape = Math.pow(Math.sin((Math.PI * i) / count), round > 0 ? round : 1);
+      mix(from + i, low2 * amp * shape * (attack <= 0 ? 1 : attackEnv(i, attack)) * releaseEnv(count - i, release));
+    }
   };
 
-  const normalize = (peak = 0.92) => {
+  /** Removes any DC offset so the waveform sits on the zero line. */
+  const dcBlock = () => {
+    let previousInput = 0;
+    let previousOutput = 0;
+    for (let i = 0; i < data.length; i += 1) {
+      const input = data[i];
+      const output = input - previousInput + 0.995 * previousOutput;
+      previousInput = input;
+      previousOutput = output;
+      data[i] = output;
+    }
+  };
+
+  /** Gentle two pole low pass. Takes the edge off the top end. */
+  const lowpass = (cutoff) => {
+    const alpha = 1 - Math.exp((-2 * Math.PI * cutoff) / SAMPLE_RATE);
+    let first = 0;
+    let second = 0;
+    for (let i = 0; i < data.length; i += 1) {
+      first += alpha * (data[i] - first);
+      second += alpha * (first - second);
+      data[i] = second;
+    }
+  };
+
+  /** Soft knee limiter: loud peaks squash instead of clipping into a crackle. */
+  const softClip = (knee = 0.7) => {
+    for (let i = 0; i < data.length; i += 1) {
+      const value = data[i];
+      const magnitude = Math.abs(value);
+      if (magnitude <= knee) continue;
+      const over = (magnitude - knee) / (1 - knee);
+      data[i] = Math.sign(value) * (knee + (1 - knee) * Math.tanh(over));
+    }
+  };
+
+  const peak = () => {
     let max = 0;
     for (let i = 0; i < data.length; i += 1) max = Math.max(max, Math.abs(data[i]));
-    if (max <= 0) return data;
-    const scale = peak / max;
-    for (let i = 0; i < data.length; i += 1) data[i] *= scale;
+    return max;
+  };
+
+  const scale = (factor) => {
+    for (let i = 0; i < data.length; i += 1) data[i] *= factor;
+  };
+
+  /** Peak normalize to a headroom figure, so nothing ever touches full scale. */
+  const normalize = (target = 0.85) => {
+    const max = peak();
+    if (max > 0) scale(target / max);
     return data;
   };
 
-  /** Short fades at both ends so nothing starts or stops with a click. */
-  const fadeEdges = (seconds = 0.006) => {
+  /** Short fades at both ends so a file never starts or stops with a click. */
+  const fadeEdges = (seconds = 0.01) => {
     const edge = frames(seconds);
-    for (let i = 0; i < edge; i += 1) {
-      const gain = i / edge;
+    for (let i = 0; i < edge && i < data.length; i += 1) {
+      const gain = attackEnv(i, seconds);
       data[i] *= gain;
       const tail = data.length - 1 - i;
       if (tail >= 0) data[tail] *= gain;
@@ -111,7 +242,36 @@ function createTrack(lengthSeconds) {
     return data;
   };
 
-  return { data, tone, noise, click, normalize, fadeEdges };
+  /**
+   * Blends the tail of a loop back into its head, so repeating it has no seam
+   * and no dip.
+   */
+  const wrapLoop = (seconds = 0.8) => {
+    const length = Math.min(frames(seconds), Math.floor(data.length / 3));
+    const start = data.length - length;
+    // Fold the tail into the head: the first sample becomes the sample that
+    // would come next in the loop, so the join has no step and no silence.
+    for (let i = 0; i < length; i += 1) {
+      const blend = i / length;
+      data[i] = at(i) * blend + at(start + i) * (1 - blend);
+    }
+    // The tail has been folded in already, so it is trimmed off. Keeping it
+    // would play those samples twice and leave a dip at every loop point.
+    keep = start;
+  };
+
+  /** The whole finishing chain, in the order a mastering engineer would use. */
+  const finish = ({ target = 0.85, cutoff = 7600, loop = false } = {}) => {
+    dcBlock();
+    lowpass(cutoff);
+    softClip(0.7);
+    if (loop) wrapLoop(0.8);
+    else fadeEdges(0.012);
+    normalize(target);
+    return data.slice(0, keep);
+  };
+
+  return { data, note, pad, air, finish, peak, normalize, fadeEdges, softClip, dcBlock, lowpass, wrapLoop };
 }
 
 // ------------------------------------------------------------------- WAV
@@ -123,13 +283,13 @@ function writeWav(fileName, samples) {
   buffer.writeUInt32LE(36 + dataLength, 4);
   buffer.write('WAVE', 8, 'ascii');
   buffer.write('fmt ', 12, 'ascii');
-  buffer.writeUInt32LE(16, 16); // fmt chunk size
+  buffer.writeUInt32LE(16, 16);
   buffer.writeUInt16LE(1, 20); // PCM
   buffer.writeUInt16LE(1, 22); // mono
   buffer.writeUInt32LE(SAMPLE_RATE, 24);
-  buffer.writeUInt32LE(SAMPLE_RATE * 2, 28); // byte rate
-  buffer.writeUInt16LE(2, 32); // block align
-  buffer.writeUInt16LE(16, 34); // bits per sample
+  buffer.writeUInt32LE(SAMPLE_RATE * 2, 28);
+  buffer.writeUInt16LE(2, 32);
+  buffer.writeUInt16LE(16, 34);
   buffer.write('data', 36, 'ascii');
   buffer.writeUInt32LE(dataLength, 40);
 
@@ -140,181 +300,211 @@ function writeWav(fileName, samples) {
 
   const file = path.join(OUT_DIR, fileName);
   fs.writeFileSync(file, buffer);
-  const duration = (samples.length / SAMPLE_RATE).toFixed(2);
-  console.log(`wrote ${fileName} (${duration}s, ${Math.round(buffer.length / 1024)} KB)`);
+
+  let sum = 0;
+  let max = 0;
+  for (let i = 0; i < samples.length; i += 1) {
+    sum += samples[i] * samples[i];
+    max = Math.max(max, Math.abs(samples[i]));
+  }
+  const rms = Math.sqrt(sum / Math.max(1, samples.length));
+  const toDb = (value) => (value <= 0 ? -120 : 20 * Math.log10(value));
+  console.log(
+    `wrote ${fileName} (${(samples.length / SAMPLE_RATE).toFixed(2)}s, peak ${toDb(max).toFixed(1)} dB, rms ${toDb(rms).toFixed(1)} dB, ${Math.round(
+      buffer.length / 1024,
+    )} KB)`,
+  );
 }
 
 // ----------------------------------------------------------------- sounds
 
-/** Soft interface blip for every tap. */
+/** The softest possible acknowledgement that a finger landed. */
 function tap() {
-  const track = createTrack(0.09);
-  track.tone({ freq: 620, duration: 0.06, amp: 0.5, release: 0.04, harmonics: [[2, 0.12]] });
-  return track.normalize(0.8);
+  const track = createTrack(0.1);
+  track.note({ freq: NOTE.G5, duration: 0.075, amp: 0.5, decay: 0.045, brightness: 0.8, attack: 0.004 });
+  return track.finish({ target: 0.55, cutoff: 6800 });
 }
 
-/** Happy two note chime for a correct spelling. */
+/** Two warm notes climbing, the sound of getting it right. */
 function correct() {
-  const track = createTrack(0.5);
-  track.tone({ freq: 1046.5, duration: 0.16, amp: 0.5, release: 0.08, harmonics: [[2, 0.2], [3, 0.08]] });
-  track.tone({ freq: 1318.5, start: 0.13, duration: 0.34, amp: 0.55, release: 0.28, harmonics: [[2, 0.24], [3, 0.1]] });
-  return track.normalize(0.9);
-}
-
-/** Bright arcade ping as coins drop out of a solved word. */
-function coin() {
-  const track = createTrack(0.34);
-  track.tone({ freq: 1180, start: 0, duration: 0.13, amp: 0.5, glide: 620, type: 'square', release: 0.05, harmonics: [[2, 0.2]] });
-  track.tone({ freq: 1760, start: 0.11, duration: 0.2, amp: 0.42, type: 'square', release: 0.16, harmonics: [[2, 0.18]] });
-  return track.normalize(0.88);
-}
-
-/** Sparkly arpeggio for gems. */
-function gem() {
-  const track = createTrack(0.52);
-  [1174.7, 1568, 2093].forEach((freq, index) => {
-    track.tone({ freq, start: index * 0.075, duration: 0.36 - index * 0.05, amp: 0.42, release: 0.24, harmonics: [[2, 0.16], [3, 0.06]] });
-  });
-  return track.normalize(0.88);
-}
-
-/** Rising swoosh that celebrates a big combo. */
-function combo() {
   const track = createTrack(0.6);
-  track.noise({ duration: 0.42, amp: 0.3, cutoff: 500, cutoffEnd: 4200 });
-  track.tone({ freq: 420, duration: 0.42, amp: 0.32, glide: 760, type: 'saw', release: 0.16, harmonics: [[2, 0.14]] });
-  track.tone({ freq: 1568, start: 0.4, duration: 0.2, amp: 0.45, release: 0.16, harmonics: [[2, 0.2]] });
-  return track.normalize(0.9);
+  track.note({ freq: NOTE.C5, duration: 0.24, amp: 0.42, decay: 0.16, brightness: 0.9 });
+  track.note({ freq: NOTE.G5, start: 0.12, duration: 0.42, amp: 0.46, decay: 0.34, brightness: 0.95 });
+  track.note({ freq: NOTE.C6, start: 0.12, duration: 0.42, amp: 0.16, decay: 0.3, brightness: 0.8 });
+  return track.finish({ target: 0.82 });
 }
 
-/** Short low buzz when a life is lost. */
+/** Bright but gentle double ping as coins drop out of a solved word. */
+function coin() {
+  const track = createTrack(0.36);
+  track.note({ freq: NOTE.E6, duration: 0.14, amp: 0.4, decay: 0.075, brightness: 0.82 });
+  track.note({ freq: NOTE.A6, start: 0.075, duration: 0.24, amp: 0.34, decay: 0.11, brightness: 0.78 });
+  track.note({ freq: NOTE.A5, start: 0.075, duration: 0.24, amp: 0.14, decay: 0.14, brightness: 0.7 });
+  return track.finish({ target: 0.8, cutoff: 7200 });
+}
+
+/** Three note sparkle for gems. */
+function gem() {
+  const track = createTrack(0.7);
+  const notes = [NOTE.C6, NOTE.E6, NOTE.G6];
+  notes.forEach((freq, index) => {
+    track.note({ freq, start: index * 0.075, duration: 0.4 - index * 0.05, amp: 0.34, decay: 0.26 - index * 0.04, brightness: 0.82 });
+  });
+  track.note({ freq: NOTE.C5, start: 0.15, duration: 0.5, amp: 0.12, decay: 0.4, brightness: 0.7 });
+  return track.finish({ target: 0.8, cutoff: 7400 });
+}
+
+/** A quick pentatonic run for a big combo, in tune with the music. */
+function combo() {
+  const track = createTrack(0.85);
+  const run = [NOTE.C5, NOTE.D5, NOTE.E5, NOTE.G5, NOTE.A5];
+  run.forEach((freq, index) => {
+    track.note({ freq, start: index * 0.085, duration: 0.3, amp: 0.3, decay: 0.2, brightness: 0.95 });
+  });
+  track.note({ freq: NOTE.C6, start: 0.42, duration: 0.42, amp: 0.26, decay: 0.32, brightness: 0.9 });
+  return track.finish({ target: 0.85 });
+}
+
+/** A soft, kind "not quite" that never sounds like a buzzer. */
 function wrong() {
-  const track = createTrack(0.32);
-  track.tone({ freq: 240, duration: 0.26, amp: 0.45, glide: -90, type: 'saw', release: 0.1, harmonics: [[2, 0.16]] });
-  return track.normalize(0.75);
+  const track = createTrack(0.42);
+  track.note({ freq: NOTE.E5, duration: 0.22, amp: 0.34, decay: 0.16, brightness: 0.62, attack: 0.018 });
+  track.note({ freq: NOTE.C5, start: 0.14, duration: 0.28, amp: 0.32, decay: 0.22, brightness: 0.6, attack: 0.02 });
+  track.pad({ freq: NOTE.C4, start: 0.02, duration: 0.36, amp: 0.1, attack: 0.06, release: 0.16 });
+  return track.finish({ target: 0.6, cutoff: 5200 });
 }
 
-/** Gentle descending phrase used when all three hearts are gone. */
+/** A slow descending sigh when the last heart goes. */
 function lose() {
-  const track = createTrack(1.1);
-  [659.3, 587.3, 440].forEach((freq, index) => {
-    track.tone({ freq, start: index * 0.22, duration: 0.34, amp: 0.4, release: 0.2, type: 'triangle' });
+  const track = createTrack(1.3);
+  const notes = [NOTE.A4, NOTE.G4, NOTE.E4];
+  notes.forEach((freq, index) => {
+    track.note({ freq, start: index * 0.26, duration: 0.4, amp: 0.3, decay: 0.28, brightness: 0.7, attack: 0.02 });
   });
-  track.noise({ start: 0.7, duration: 0.35, amp: 0.12, cutoff: 900, cutoffEnd: 300 });
-  return track.normalize(0.75);
+  track.pad({ freq: NOTE.C4, start: 0.1, duration: 1.0, amp: 0.16, attack: 0.2, release: 0.4 });
+  return track.finish({ target: 0.65, cutoff: 5000 });
 }
 
-/** Airy transition for screen changes and returning a letter. */
+/** Airy transition for screen changes and for putting a letter back. */
 function whoosh() {
-  const track = createTrack(0.4);
-  track.noise({ duration: 0.34, amp: 0.34, cutoff: 2600, cutoffEnd: 320, attack: 0.02, release: 0.16 });
-  return track.normalize(0.7);
+  const track = createTrack(0.42);
+  track.air({ duration: 0.36, amp: 0.5, cutoff: 1500, attack: 0.08, release: 0.14, round: 2 });
+  track.note({ freq: NOTE.G5, start: 0.06, duration: 0.24, amp: 0.1, decay: 0.18, brightness: 0.6 });
+  return track.finish({ target: 0.5, cutoff: 5200 });
 }
 
-/** Crackle and crack as an egg splits open. */
+/** Soft taps as an egg splits, then a happy pair of notes. */
 function hatch() {
-  const track = createTrack(0.8);
-  for (let i = 0; i < 7; i += 1) track.click({ start: i * 0.045, duration: 0.03, amp: 0.5 });
-  track.noise({ start: 0.32, duration: 0.36, amp: 0.36, cutoff: 1600, cutoffEnd: 500 });
-  track.tone({ freq: 880, start: 0.34, duration: 0.4, amp: 0.3, glide: 400, release: 0.26, harmonics: [[2, 0.18]] });
-  return track.normalize(0.9);
+  const track = createTrack(1.0);
+  for (let i = 0; i < 6; i += 1) {
+    track.air({ start: i * 0.06, duration: 0.05, amp: 0.34 - i * 0.02, cutoff: 1700, attack: 0.004, release: 0.02, round: 2 });
+  }
+  track.note({ freq: NOTE.C5, start: 0.38, duration: 0.3, amp: 0.36, decay: 0.2, brightness: 0.9 });
+  track.note({ freq: NOTE.G5, start: 0.5, duration: 0.44, amp: 0.4, decay: 0.32, brightness: 0.95 });
+  return track.finish({ target: 0.82 });
 }
 
-/** Big rising sweep with a chord on top for an evolution. */
+/** A warm rising sweep and a chord for an evolution. */
 function evolve() {
-  const track = createTrack(1.9);
-  track.tone({ freq: 180, duration: 1.5, amp: 0.3, glide: 900, type: 'saw', release: 0.3, harmonics: [[2, 0.16], [3, 0.08]] });
-  track.noise({ start: 0.1, duration: 1.4, amp: 0.2, cutoff: 400, cutoffEnd: 5200 });
-  [523.3, 659.3, 784].forEach((freq) => {
-    track.tone({ freq, start: 1.15, duration: 0.7, amp: 0.26, release: 0.5, harmonics: [[2, 0.16]], tremolo: 0.18, tremoloHz: 6 });
+  const track = createTrack(2.1);
+  track.pad({ freq: NOTE.C4, duration: 1.5, amp: 0.2, attack: 0.6, release: 0.6 });
+  const climb = [NOTE.C5, NOTE.E5, NOTE.G5, NOTE.C6];
+  climb.forEach((freq, index) => {
+    track.note({ freq, start: 0.3 + index * 0.2, duration: 0.6, amp: 0.24, decay: 0.4, brightness: 0.95 });
   });
-  return track.normalize(0.95);
+  [NOTE.C5, NOTE.E5, NOTE.G5].forEach((freq) => {
+    track.pad({ freq, start: 1.25, duration: 0.8, amp: 0.16, attack: 0.1, release: 0.5 });
+  });
+  return track.finish({ target: 0.88 });
 }
 
 /** Four note fanfare for a cleared level. */
 function victory() {
-  const track = createTrack(1.5);
-  const notes = [
-    { freq: 523.3, start: 0 },
-    { freq: 659.3, start: 0.16 },
-    { freq: 784, start: 0.32 },
-    { freq: 1046.5, start: 0.5 },
-  ];
-  notes.forEach(({ freq, start }) => {
-    track.tone({ freq, start, duration: 0.34, amp: 0.4, release: 0.2, harmonics: [[2, 0.22], [3, 0.08]] });
+  const track = createTrack(1.7);
+  const notes = [NOTE.C5, NOTE.E5, NOTE.G5, NOTE.C6];
+  notes.forEach((freq, index) => {
+    track.note({ freq, start: index * 0.16, duration: 0.42, amp: 0.36, decay: 0.3, brightness: 0.95 });
   });
-  track.tone({ freq: 1046.5, start: 0.62, duration: 0.8, amp: 0.42, release: 0.5, harmonics: [[2, 0.2]] });
-  track.tone({ freq: 523.3, start: 0.62, duration: 0.8, amp: 0.24, release: 0.5 });
-  return track.normalize(0.95);
+  track.note({ freq: NOTE.C6, start: 0.66, duration: 0.9, amp: 0.34, decay: 0.7, brightness: 0.9 });
+  [NOTE.C5, NOTE.E5, NOTE.G5].forEach((freq) => {
+    track.pad({ freq, start: 0.66, duration: 0.9, amp: 0.13, attack: 0.08, release: 0.5 });
+  });
+  return track.finish({ target: 0.9 });
 }
 
-/** Warm bell for the daily reward. */
+/** A warm bell for the daily reward. */
 function daily() {
-  const track = createTrack(0.9);
-  track.tone({ freq: 880, duration: 0.8, amp: 0.45, release: 0.6, harmonics: [[2, 0.22], [3, 0.1], [4.2, 0.05]] });
-  track.tone({ freq: 1320, start: 0.06, duration: 0.6, amp: 0.2, release: 0.45, harmonics: [[2, 0.14]] });
-  return track.normalize(0.85);
+  const track = createTrack(1.1);
+  track.note({ freq: NOTE.G5, duration: 0.95, amp: 0.42, decay: 0.62, brightness: 0.95, attack: 0.01 });
+  track.note({ freq: NOTE.C6, start: 0.04, duration: 0.8, amp: 0.2, decay: 0.5, brightness: 0.85 });
+  track.note({ freq: NOTE.D6, start: 0.08, duration: 0.7, amp: 0.12, decay: 0.42, brightness: 0.8 });
+  return track.finish({ target: 0.8, cutoff: 8400 });
 }
 
-/** Rattle of a crate being shaken before it opens. */
+/** Rounded maraca shaker for a crate being shaken before it opens. */
 function eggshake() {
-  const track = createTrack(0.6);
-  for (let i = 0; i < 14; i += 1) {
-    const start = i * 0.038 + (i % 3) * 0.004;
-    track.click({ start, duration: 0.022, amp: 0.34 + (i % 2) * 0.12 });
+  const track = createTrack(0.7);
+  for (let i = 0; i < 10; i += 1) {
+    const start = i * 0.05 + (i % 3) * 0.005;
+    track.air({ start, duration: 0.055, amp: 0.42 - (i % 2) * 0.08, cutoff: 2600, attack: 0.006, release: 0.03, round: 3 });
   }
-  track.tone({ freq: 220, start: 0.2, duration: 0.3, amp: 0.16, type: 'triangle', tremolo: 0.4, tremoloHz: 24, release: 0.2 });
-  return track.normalize(0.8);
+  track.note({ freq: NOTE.G5, start: 0.2, duration: 0.4, amp: 0.12, decay: 0.24, brightness: 0.7 });
+  return track.finish({ target: 0.7, cutoff: 6400 });
 }
 
-/** Three distinct monster growls for correct spellings and combos. */
-function roar(options) {
-  const { base, drop, duration, tremoloHz, noiseAmp, harmonics } = options;
+/**
+ * The three monster sounds. They are friendly creature calls rather than
+ * growls: a short rising note with a wobble and a soft low body underneath.
+ */
+function creature({ base, second, wobble, wobbleHz, duration }) {
   const track = createTrack(duration);
-  track.tone({ freq: base, duration: duration - 0.15, amp: 0.5, glide: drop, type: 'saw', release: 0.35, tremolo: 0.5, tremoloHz, harmonics });
-  track.tone({ freq: base * 0.5, duration: duration - 0.2, amp: 0.28, glide: drop * 0.4, type: 'sine', release: 0.4 });
-  track.noise({ duration: duration - 0.1, amp: noiseAmp, cutoff: 700, cutoffEnd: 240, attack: 0.03, release: 0.3 });
-  return track.normalize(0.96);
+  track.pad({ freq: base / 2, duration: duration - 0.1, amp: 0.22, attack: 0.05, release: 0.3 });
+  track.note({ freq: base, duration: duration * 0.6, amp: 0.34, decay: 0.3, brightness: 0.75, vibrato: wobble, vibratoHz: wobbleHz, attack: 0.03 });
+  track.note({ freq: second, start: duration * 0.32, duration: duration * 0.6, amp: 0.32, decay: 0.34, brightness: 0.9, attack: 0.02 });
+  track.air({ start: 0.05, duration: duration * 0.7, amp: 0.1, cutoff: 900, attack: 0.08, release: 0.2, round: 2 });
+  return track.finish({ target: 0.78, cutoff: 6200 });
 }
 
-function roar1() {
-  return roar({ base: 150, drop: -85, duration: 1.1, tremoloHz: 22, noiseAmp: 0.22, harmonics: [[2, 0.18], [3, 0.08]] });
-}
+const roar1 = () => creature({ base: NOTE.C5, second: NOTE.E5, wobble: 0.02, wobbleHz: 8, duration: 0.9 });
+const roar2 = () => creature({ base: NOTE.D5, second: NOTE.A5, wobble: 0.025, wobbleHz: 6.5, duration: 1.0 });
+const roar3 = () => creature({ base: NOTE.G4, second: NOTE.D5, wobble: 0.018, wobbleHz: 5.5, duration: 1.1 });
 
-function roar2() {
-  return roar({ base: 205, drop: -120, duration: 0.95, tremoloHz: 14, noiseAmp: 0.32, harmonics: [[2, 0.24], [3, 0.12], [4, 0.06]] });
-}
-
-function roar3() {
-  return roar({ base: 112, drop: -60, duration: 1.35, tremoloHz: 9, noiseAmp: 0.26, harmonics: [[2, 0.2], [3, 0.14], [5, 0.05]] });
-}
-
-/** Seamless twelve second background loop: four chords of soft arpeggio. */
+/** Sixteen second background loop: four soft chords with a music box on top. */
 function music() {
-  const track = createTrack(12);
+  const track = createTrack(16);
   const chords = [
-    [261.6, 329.6, 392],
-    [220, 261.6, 329.6],
-    [174.6, 220, 261.6],
-    [196, 246.9, 293.7],
+    [NOTE.C4, NOTE.E4, NOTE.G4],
+    [NOTE.A4 / 2, NOTE.C4, NOTE.E4],
+    [NOTE.G4 / 2, NOTE.C4, NOTE.E4],
+    [NOTE.G4, NOTE.C5, NOTE.D5],
   ];
+  // Two melody notes per chord, always on the pentatonic scale.
+  const melody = [
+    [NOTE.E5, NOTE.G5],
+    [NOTE.C6, NOTE.A5],
+    [NOTE.G5, NOTE.E5],
+    [NOTE.D6, NOTE.C6],
+  ];
+
   chords.forEach((chord, chordIndex) => {
-    const chordStart = chordIndex * 3;
-    track.tone({ freq: chord[0] / 2, start: chordStart, duration: 2.9, amp: 0.16, type: 'triangle', attack: 0.2, release: 0.4 });
-    for (let step = 0; step < 6; step += 1) {
-      const note = chord[step % chord.length];
-      track.tone({
-        freq: note * (step % 3 === 2 ? 2 : 1),
-        start: chordStart + step * 0.5,
-        duration: 0.6,
-        amp: 0.1,
-        attack: 0.03,
-        release: 0.34,
-        harmonics: [[2, 0.12]],
+    const chordStart = chordIndex * 4;
+    chord.forEach((freq) => {
+      track.pad({ freq, start: chordStart, duration: 3.6, amp: 0.1, attack: 0.7, release: 0.9 });
+    });
+    melody[chordIndex].forEach((freq, noteIndex) => {
+      track.note({
+        freq,
+        start: chordStart + 0.6 + noteIndex * 1.7,
+        duration: 1.3,
+        amp: 0.085,
+        decay: 1.0,
+        brightness: 0.85,
+        attack: 0.02,
       });
-    }
+    });
   });
-  return track.normalize(0.55);
+
+  return track.finish({ target: 0.5, cutoff: 6200, loop: true });
 }
 
 // ------------------------------------------------------------------ write
@@ -341,23 +531,8 @@ const SOUNDS = [
 
 fs.mkdirSync(OUT_DIR, { recursive: true });
 
-/** Short fades on both ends of an already rendered buffer, so nothing clicks. */
-function applyEdgeFade(samples, seconds = 0.008) {
-  const edge = Math.max(1, Math.round(seconds * SAMPLE_RATE));
-  for (let i = 0; i < edge && i < samples.length; i += 1) {
-    const gain = i / edge;
-    samples[i] *= gain;
-    const tail = samples.length - 1 - i;
-    if (tail >= 0) samples[tail] *= gain;
-  }
-  return samples;
-}
-
 for (const [name, build] of SOUNDS) {
-  const samples = build();
-  // The music loop is left unfaded so it repeats without a dip at the seam.
-  if (name !== 'music.wav') applyEdgeFade(samples);
-  writeWav(name, samples);
+  writeWav(name, build());
 }
 
-console.log(`\nAll sounds written to ${path.relative(process.cwd(), OUT_DIR)} or already up to date.`);
+console.log(`\nAll sounds written to ${path.relative(process.cwd(), OUT_DIR)}.`);

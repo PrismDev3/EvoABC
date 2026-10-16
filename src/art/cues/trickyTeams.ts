@@ -1,0 +1,35 @@
+import { CueCatalog } from './types';
+
+/** Picture cues for the tricky letter teams: ph says f, and the quiet k, w and b. */
+
+export const TRICKY_TEAM_CUES: CueCatalog = {
+  bone: { name: 'bone' },
+  'silent-stones': { name: 'diamond-stone' },
+  phone: { name: 'phone' },
+  camera: { name: 'camera' },
+  dolphin: { name: 'dolphin' },
+  elephant: { name: 'elephant' },
+  'bar-chart': { name: 'chart-bar' },
+  trophy: { name: 'trophy' },
+  alphabet: { name: 'format-letter-case' },
+  egg: { name: 'egg' },
+  knee: { name: 'walk' },
+  knot: { name: 'bow-tie' },
+  knife: { name: 'knife' },
+  pencil: { name: 'pencil' },
+  door: { name: 'door' },
+  lightbulb: { name: 'lightbulb' },
+  watch: { name: 'watch' },
+  gift: { name: 'gift' },
+  notebook: { name: 'notebook' },
+  shield: { name: 'shield' },
+  sheep: { name: 'sheep' },
+  'thumb-up': { name: 'thumb-up' },
+  comb: { name: 'hair-dryer' },
+  ladder: { name: 'ladder' },
+  limb: { name: 'human-handsup' },
+  'bread-slice': { name: 'bread-slice' },
+  ruler: { name: 'ruler' },
+  bomb: { name: 'bomb' },
+  snowflake: { name: 'snowflake' },
+};

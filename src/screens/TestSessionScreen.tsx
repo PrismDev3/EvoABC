@@ -19,7 +19,7 @@ import { Confetti, EvolveBurst, FloatingReward, PopIn, ScreenShake, SparkleRing 
 import { CheckIcon, CloseIcon, CoinIcon, GemIcon, SparkleIcon } from '../art/Icons';
 import { Dino } from '../art/Dino';
 import { haptic } from '../lib/feedback';
-import { speakLine, speakWord, stopSpeech, teachWord } from '../lib/tts';
+import { soundOut, speakWord, stopSpeech, teachWord } from '../lib/tts';
 import { playRoar } from '../audio/sfx';
 import { TestRoundResult } from '../state/GameContext';
 
@@ -46,6 +46,7 @@ export default function TestSessionScreen() {
   const [shakeKey, setShakeKey] = useState(0);
   const [burstKey, setBurstKey] = useState(0);
   const [roundResult, setRoundResult] = useState<TestRoundResult | null>(null);
+  const [dragging, setDragging] = useState(false);
   const [quitOpen, setQuitOpen] = useState(false);
   const [showRoundCard, setShowRoundCard] = useState(false);
   const startedRef = useRef<string | null>(null);
@@ -128,6 +129,13 @@ export default function TestSessionScreen() {
     teachWord(word);
   }, [word]);
 
+  // Sound it out reads the word in its letter sounds, which is what a grown up
+  // would do at the kitchen table when a word will not stick.
+  const soundItOut = useCallback(() => {
+    if (word === null) return;
+    soundOut(word);
+  }, [word]);
+
   const finishRound = useCallback(() => {
     const result = finishTestRound();
     setShowRoundCard(false);
@@ -196,7 +204,13 @@ export default function TestSessionScreen() {
   const hideWord = plan.phase !== 'learn';
 
   return (
-    <ScreenScaffold gradient={plan.phase === 'test' ? gradients.grape : gradients.sky} scroll padded={false} contentStyle={styles.screenPadding}>
+    <ScreenScaffold
+      gradient={plan.phase === 'test' ? gradients.grape : gradients.sky}
+      scroll
+      scrollEnabled={!dragging}
+      padded={false}
+      contentStyle={styles.screenPadding}
+    >
       <ScreenHeader
         title={list.name}
         subtitle={`${phaseTitle(plan.phase)}. ${phaseHint(plan.phase)}`}
@@ -251,6 +265,7 @@ export default function TestSessionScreen() {
                 </View>
                 <View style={styles.hiddenActions}>
                   <SpeakerButton onPress={() => word !== null && speakWord(word)} label="Hear it again" tint={colors.gem} size={46} />
+                  <SpeakerButton onPress={soundItOut} label="Sound it out" tint={colors.jungle} size={46} />
                   <SpeakerButton onPress={teachAgain} label="Spell it with me" tint={colors.amber} size={46} />
                 </View>
               </View>
@@ -258,6 +273,7 @@ export default function TestSessionScreen() {
               <View style={styles.visibleWord}>
                 <WordLetters word={word} pattern={pattern} size={34} />
                 <SpeakerButton onPress={teachAgain} label="Hear it and spell it" tint={colors.grape} size={46} />
+                <SpeakerButton onPress={soundItOut} label="Sound it out" tint={colors.jungle} size={46} />
               </View>
             )}
           </Panel>
@@ -268,6 +284,7 @@ export default function TestSessionScreen() {
               letters={trayLetters}
               tileSize={tileSize}
               locked={feedback !== null}
+              onDragStateChange={setDragging}
               onSolved={() => handleAnswer(true)}
               onWrong={() => handleAnswer(false)}
             />

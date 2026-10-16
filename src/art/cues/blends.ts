@@ -1,0 +1,36 @@
+import { CueCatalog } from './types';
+
+/** Picture cues for Blend Starters: the words that begin with two glued letters. */
+
+export const BLEND_CUES: CueCatalog = {
+  footprints: { name: 'shoe-prints', pack: 'fa6' },
+  'stop-sign': { name: 'stop' },
+  spin: { name: 'rotate-right' },
+  star: { name: 'star-four-points' },
+  'postage-stamp': { name: 'stamp', pack: 'fa6' },
+  sticks: { name: 'hockey-sticks' },
+  spots: { name: 'dots-circle' },
+  spy: { name: 'incognito' },
+  'spilled-cup': { name: 'cup-off' },
+  snake: { name: 'snake' },
+  bridge: { name: 'bridge' },
+  'brick-wall': { name: 'wall' },
+  'sea-creature': { name: 'shrimp', pack: 'fa6' },
+  drum: { name: 'drum', pack: 'fa6' },
+  tree: { name: 'tree' },
+  dragon: { name: 'dragon', pack: 'fa6' },
+  truck: { name: 'truck' },
+  crown: { name: 'crown' },
+  dress: { name: 'hanger' },
+  trap: { name: 'spider-web' },
+  snowflake: { name: 'snowflake' },
+  flag: { name: 'flag' },
+  flip: { name: 'flip-horizontal' },
+  glue: { name: 'tape', pack: 'fa6' },
+  sled: { name: 'snowboard' },
+  flower: { name: 'flower' },
+  'happy-face': { name: 'emoticon-happy' },
+  plug: { name: 'power-plug' },
+  plane: { name: 'airplane' },
+  slide: { name: 'slide' },
+};

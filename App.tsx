@@ -6,6 +6,10 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useFonts as useBalooFonts } from 'expo-font';
 // Only the seven weights the theme actually uses are imported, so the app
 // does not ship every weight of both families.
+// One pack at a time: the package index would pull in every icon font it
+// ships, which is about five megabytes of fonts this app never draws.
+import FontAwesome6 from '@expo/vector-icons/FontAwesome6';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { Baloo2_600SemiBold } from '@expo-google-fonts/baloo-2/600SemiBold';
 import { Baloo2_700Bold } from '@expo-google-fonts/baloo-2/700Bold';
 import { Baloo2_800ExtraBold } from '@expo-google-fonts/baloo-2/800ExtraBold';
@@ -72,6 +76,9 @@ function BootSplash() {
 
 function Shell() {
   const { ready, profile } = useGame();
+  // The picture cue icons are fonts too, and an unloaded icon draws nothing.
+  // Waiting for them behind the splash screen means the first word card already
+  // has its picture instead of a blank plate on the first frame.
   const [loaded] = useBalooFonts({
     Baloo2_600SemiBold,
     Baloo2_700Bold,
@@ -80,6 +87,8 @@ function Shell() {
     Nunito_600SemiBold,
     Nunito_700Bold,
     Nunito_800ExtraBold,
+    ...MaterialCommunityIcons.font,
+    ...FontAwesome6.font,
   });
 
   const hideSplash = useCallback(() => {

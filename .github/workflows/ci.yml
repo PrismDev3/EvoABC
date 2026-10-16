@@ -35,6 +35,24 @@ jobs:
       - name: Game logic self check
         run: npm run selfcheck
 
+      # Pictures are vector icons, never emoji, and no UI copy carries a long
+      # dash. Both are easy to break by accident when adding a word.
+      - name: Audit for emoji and long dashes
+        run: npm run audit
+
+      # Rebuilds the sounds from the generator, which is seeded and therefore
+      # reproducible, so the committed WAVs must match it byte for byte.
+      - name: Rebuild the generated sounds
+        run: node scripts/generate-audio.js
+
+      - name: Check the committed sounds are up to date
+        run: git diff --exit-code -- assets/audio
+
+      # Then measures them: clipping, DC offset, clicks between samples and a
+      # buzzy top end all fail the build.
+      - name: Measure the generated sounds
+        run: npm run audio:check
+
       # Bundling catches missing imports and broken assets on Linux, which is
       # much faster feedback than a native build.
       - name: Bundle the iOS JavaScript

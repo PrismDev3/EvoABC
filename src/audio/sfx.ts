@@ -45,23 +45,28 @@ const SOURCES: Record<SfxName, number> = {
 
 const MUSIC = require('../../assets/audio/music.wav');
 
+/**
+ * Playback levels. The files are already levelled and soft limited, so these
+ * only balance the sound design: taps stay out of the way, rewards sit forward,
+ * and nothing is loud enough to be startling through headphones.
+ */
 const VOLUME: Partial<Record<SfxName, number>> = {
-  tap: 0.55,
+  tap: 0.5,
   coin: 0.7,
-  gem: 0.8,
+  gem: 0.75,
   correct: 0.85,
-  combo: 0.9,
-  wrong: 0.5,
+  combo: 0.85,
+  wrong: 0.6,
   lose: 0.7,
   whoosh: 0.5,
-  hatch: 0.9,
-  evolve: 1,
+  hatch: 0.85,
+  evolve: 0.95,
   victory: 0.95,
   daily: 0.9,
   eggshake: 0.6,
-  roar1: 0.85,
-  roar2: 0.85,
-  roar3: 0.85,
+  roar1: 0.8,
+  roar2: 0.8,
+  roar3: 0.8,
 };
 
 const players = new Map<SfxName, AudioPlayer>();
@@ -96,7 +101,7 @@ function playerFor(name: SfxName): AudioPlayer | null {
 }
 
 /** Warm the cache so the first stomp has no delay behind it. */
-export function preloadSfx(names: SfxName[] = ['tap', 'correct', 'coin', 'wrong']): void {
+export function preloadSfx(names: SfxName[] = ['tap', 'correct', 'coin', 'wrong', 'whoosh', 'combo']): void {
   names.forEach((name) => playerFor(name));
 }
 
@@ -134,7 +139,9 @@ export function startMusic(): void {
   try {
     if (musicPlayer === null) {
       musicPlayer = createAudioPlayer(MUSIC);
-      musicPlayer.volume = 0.22;
+      // Deliberately well under the sound effects: it is a background hum, not
+      // something a child should have to talk over.
+      musicPlayer.volume = 0.16;
       musicPlayer.loop = true;
     }
     musicPlayer.play();

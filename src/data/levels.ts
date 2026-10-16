@@ -37,7 +37,7 @@ export const REGIONS: Region[] = REGION_SEEDS.map((seed: RegionSeed) => ({
   name: seed.name,
   blurb: seed.blurb,
   tag: seed.tag,
-  emoji: seed.emoji,
+  cue: seed.cue,
   gradient: seed.gradient,
   accent: seed.accent,
   unit: seed.unit,

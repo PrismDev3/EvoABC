@@ -9,6 +9,7 @@ import { coinsForCorrect } from '../game/economy';
 import { SessionSummary } from '../types';
 import { colors, gradients, radii, spacing, type } from '../theme';
 import { ScreenScaffold, ScreenHeader } from '../components/ScreenScaffold';
+import { CueIcon } from '../art/CueIcon';
 import { Badge, Panel } from '../components/Cards';
 import { SessionTopBar } from '../components/Hud';
 import { LetterTile, PictureCue, SpeakerButton, WordSlots } from '../components/Spelling';
@@ -19,7 +20,7 @@ import { CheckIcon, CloseIcon, SparkleIcon } from '../art/Icons';
 import { RuleCard } from '../components/RuleCard';
 import { lookupWord } from '../data/words';
 import { Pattern, patternForWord } from '../game/phonics';
-import { speakLine, speakSentence, speakWord, stopSpeech, teachWord } from '../lib/tts';
+import { soundOut, speakLine, speakSentence, speakWord, stopSpeech, teachWord } from '../lib/tts';
 
 /**
  * One learning level: five words, three hearts, three spelling modes.
@@ -42,6 +43,7 @@ export default function PlayScreen() {
   const [chosenLetter, setChosenLetter] = useState<string | null>(null);
   const [shakeKey, setShakeKey] = useState(0);
   const [burstKey, setBurstKey] = useState(0);
+  const [dragging, setDragging] = useState(false);
   const [quitOpen, setQuitOpen] = useState(false);
   const [lostSummary, setLostSummary] = useState<SessionSummary | null>(null);
   const startedRef = useRef<string | null>(null);
@@ -157,10 +159,17 @@ export default function PlayScreen() {
   const progress = session.total === 0 ? 0 : session.index / session.total;
 
   return (
-    <ScreenScaffold gradient={gradients.sky} scroll padded={false} contentStyle={styles.screenPadding}>
+    <ScreenScaffold gradient={gradients.sky} scroll scrollEnabled={!dragging} padded={false} contentStyle={styles.screenPadding}>
       <ScreenHeader
         title={level.title}
-        subtitle={`${region.name} ${region.emoji}`}
+        subtitle={
+          <View style={styles.regionRow}>
+            <CueIcon cue={region.cue} size={26} />
+            <Text style={type.body} numberOfLines={1}>
+              {region.name}
+            </Text>
+          </View>
+        }
         compact
         onBack={() => setQuitOpen(true)}
         right={<Badge label={modeLabel} color={region.accent} />}
@@ -183,12 +192,12 @@ export default function PlayScreen() {
               pattern={mode === 'listen' ? null : pattern}
             />
             <View style={styles.cardTop}>
-              <PictureCue emoji={word?.emoji ?? ''} hint={word?.hint ?? ''} tint={colors.cardAlt} size={118} />
+              <PictureCue cue={word?.cue ?? ''} hint={word?.hint ?? ''} fallback={word?.word ?? ''} tint={colors.cardAlt} size={118} />
             </View>
             {mode === 'listen' ? (
               <View style={styles.listenRow}>
                 <SpeakerButton onPress={() => (word === null ? undefined : speakSentence(word.hint, word.word))} label="Say it again" tint={colors.gem} />
-                <SpeakerButton onPress={() => (word === null ? undefined : speakWord(word.word, { rate: 0.5 }))} label="Say it slowly" tint={colors.amber} />
+                <SpeakerButton onPress={() => (word === null ? undefined : soundOut(word.word))} label="Sound it out" tint={colors.amber} />
                 <SpeakerButton onPress={() => (word === null ? undefined : teachWord(word.word))} label="Spell it with me" tint={colors.grape} />
               </View>
             ) : (
@@ -212,6 +221,7 @@ export default function PlayScreen() {
                 letters={question.letters}
                 tileSize={tileSize}
                 locked={feedback !== null}
+                onDragStateChange={setDragging}
                 onSolved={() => handleAnswer(true)}
                 onWrong={() => handleAnswer(false)}
               />
@@ -223,6 +233,7 @@ export default function PlayScreen() {
                 letters={question.letters}
                 tileSize={tileSize}
                 locked={feedback !== null}
+                onDragStateChange={setDragging}
                 onSolved={() => handleAnswer(true)}
                 onWrong={() => handleAnswer(false)}
               />
@@ -334,6 +345,7 @@ export default function PlayScreen() {
 const styles = StyleSheet.create({
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   screenPadding: { paddingHorizontal: spacing.lg },
+  regionRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   body: { flex: 1, gap: spacing.md },
   wordCard: { gap: spacing.md, alignItems: 'center' },
   ruleCard: { width: '100%', marginBottom: spacing.xs },

@@ -105,19 +105,25 @@ index.ts                    Expo entry point
 app.json                    app config: name, icons, splash, iOS bundle id
 src/
   art/                      parametric vector dinosaurs, icons and particle effects
+  art/CueIcon.tsx           draws a picture cue: a vector icon on a soft colour plate
+  art/cues/                 every picture cue, one catalog per teaching unit
   audio/sfx.ts              sound manager built on expo-audio
   components/               buttons, cards, HUD, letter tiles, drag and drop board
   data/                     word bank, evolution stages, skins, crates, levels
   data/units/               the ten teaching units, one word bank per unit
   game/                     pure rules: economy, session, testplan, phonics, loot, streak
-  lib/                      storage, touch feedback and the device voice layer
+  lib/tts.ts                the voice: voice ranking, paces, sound it out, queue
+  lib/                      storage and touch feedback
   navigation/Navigator.tsx  lightweight animated navigator
   screens/                  onboarding, home, map, play, result, eggs, collection, streak, settings, test, testSession
   state/GameContext.tsx     the single source of truth for save data and sessions
 scripts/
   generate-assets.js        draws the icon, adaptive icon and splash art
   generate-audio.js         synthesizes every sound effect as a WAV
-  selfcheck.ts              asserts the economy, session, phonics and study plan rules
+  check-audio.js            measures the WAVs for clipping, clicks and buzz
+  list-icons.js             writes icon-names.txt, every icon name a cue may use
+  audit.js                  fails the build if an emoji or a long dash sneaks back in
+  selfcheck.ts              asserts the economy, session, phonics, cues and study plan rules
 .github/workflows/
   ci.yml                    typecheck, self check and bundle on every push
   build-ios.yml             builds the ipa on a macOS runner
@@ -130,8 +136,11 @@ npm install          # install dependencies
 npm start            # start the Expo dev server (scan the QR with Expo Go)
 npm run ios          # start and open the iOS simulator (macOS only)
 npm run assets       # regenerate icons, splash and all sound effects
+npm run audio:check  # measure every WAV: clipping, level, clicks, harshness
+npm run icons:list   # rewrite scripts/icon-names.txt from the icon packs
+npm run audit        # no emoji and no long dashes anywhere in the app
 npm run typecheck    # TypeScript, no emit
-npm run selfcheck    # assert the game rules (XP curve, lives, stars, loot, streak)
+npm run selfcheck    # assert the game rules (XP curve, lives, stars, loot, cues)
 npm run bundle       # export the production iOS JavaScript bundle to dist/
 ```
 
@@ -215,6 +224,28 @@ TestFlight, use EAS:
   shows words practiced, accuracy per sound group, the words that need the most
   practice, and the reset button.
 
+## Pictures and sound
+
+**Pictures are vector icons, never emoji.** Every word, region and unit has a cue
+key such as `bee`, and `src/art/cues` maps that key to a real glyph from the two
+icon packs the app bundles (`scripts/icon-names.txt` lists every allowed name).
+`CueIcon` draws it on a soft colour plate, so the picture is sharp at any size,
+recolours with the card it sits on and looks identical on every phone.
+`npm run selfcheck` fails if a cue points at a name that does not exist, if a word
+has no picture, or if an emoji has crept back into the curriculum.
+
+**Sounds are synthesized, then measured.** `npm run assets` rebuilds them from
+band limited harmonic voices on the C major pentatonic scale with a soft limiter,
+so nothing is buzzy, out of tune or clipped. `npm run audio:check` decodes every
+file and fails on clipping, a DC offset, an edge click, a jump between samples or
+a top end that reads as fizz.
+
+**The voice is paced per platform.** iOS treats 0.5 as normal speech while
+Android treats 1.0 as normal, so the app stores one reading speed and converts it
+per platform (`src/lib/tts.ts`). Words can be said slowly, sounded out chunk by
+chunk (`d, aw, l, f, ih, n` then `dolphin`), or spelled with letter names
+(`see, ay and tee`), and a queue makes sure only one voice is ever talking.
+
 ## Tech notes
 
 - Expo SDK 54, React Native 0.81, React 19, TypeScript strict mode.
@@ -222,6 +253,7 @@ TestFlight, use EAS:
   ignored on purpose so the rewards are audible.
 - `expo-speech` reads words and sentences out loud. It uses the device voice, so
   it works offline.
+- `@expo/vector-icons` supplies the two icon packs behind every picture cue.
 - `react-native-svg` draws every dinosaur from data: a body plan plus a palette
   plus trait flags. Adding a new dinosaur is one entry in `src/data/dinosaurs.ts`.
 - The layout is portrait, capped at 640 points wide and centred, so an iPad shows

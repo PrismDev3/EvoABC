@@ -4,6 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 import { colors, fonts, radii, shadow, spacing, type } from '../theme';
 import { SoundOnIcon } from '../art/Icons';
+import { CueIcon } from '../art/CueIcon';
 import { haptic } from '../lib/feedback';
 import { playSfx } from '../audio/sfx';
 
@@ -163,22 +164,24 @@ export function SpeakerButton({ onPress, label = 'Hear it again', tint = colors.
 
 /** Big friendly illustration card for the word being spelled. */
 export function PictureCue({
-  emoji,
+  cue,
   hint,
   tint = colors.cardAlt,
   size = 130,
   reveal,
+  fallback,
 }: {
-  emoji: string;
+  cue: string;
   hint: string;
   tint?: string;
   size?: number;
   reveal?: boolean;
+  fallback?: string;
 }) {
   return (
     <View style={styles.cueWrap}>
       <LinearGradient colors={[tint, '#FFFFFF']} start={{ x: 0.2, y: 0 }} end={{ x: 0.8, y: 1 }} style={[styles.cueCard, { width: size, height: size, borderRadius: size * 0.28 }, shadow(1)]}>
-        {emoji.length > 0 ? <Text style={{ fontSize: size * 0.46 }}>{emoji}</Text> : <Text style={[styles.cueLetter, { fontSize: size * 0.36 }]}>A</Text>}
+        <CueIcon cue={cue} size={size - 22} fallback={fallback ?? hint} />
         {reveal === true ? <View style={styles.cueTick} /> : null}
       </LinearGradient>
       <Text style={[type.body, styles.cueHint]} numberOfLines={3}>

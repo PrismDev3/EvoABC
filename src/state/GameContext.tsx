@@ -630,8 +630,10 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     [profile.settings, voices],
   );
 
+  // The same teaching sequence a child hears for a new word: the word, the
+  // letter names, then the word again, all on the chosen voice and pace.
   const previewVoice = useCallback(() => {
-    speakLine('Listen carefully. Cat. C, A, T. Cat.');
+    teachWord('CAT');
   }, []);
 
   const speakTestWord = useCallback((word: string) => {

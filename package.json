@@ -10,12 +10,16 @@
     "typecheck": "tsc --noEmit",
     "selfcheck": "tsc -p tsconfig.selfcheck.json && node .selfcheck/scripts/selfcheck.js",
     "assets": "node scripts/generate-assets.js && node scripts/generate-audio.js",
+    "audio:check": "node scripts/check-audio.js",
+    "icons:list": "node scripts/list-icons.js",
+    "audit": "node scripts/audit.js",
     "bundle": "expo export --platform ios --output-dir dist",
     "prebuild:ios": "expo prebuild --platform ios"
   },
   "dependencies": {
     "@expo-google-fonts/baloo-2": "^0.4.2",
     "@expo-google-fonts/nunito": "^0.4.2",
+    "@expo/vector-icons": "^15.1.1",
     "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "~54.0.37",
     "expo-audio": "~1.1.1",

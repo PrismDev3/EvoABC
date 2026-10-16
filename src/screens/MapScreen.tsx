@@ -10,6 +10,7 @@ import { Level, Region } from '../types';
 import { speakLine } from '../lib/tts';
 import { colors, fonts, radii, shadow, spacing, type } from '../theme';
 import { ScreenHeader, ScreenScaffold } from '../components/ScreenScaffold';
+import { CueIcon } from '../art/CueIcon';
 import { Panel, ProgressBar } from '../components/Cards';
 import { ChunkyButton } from '../components/Button';
 import { GameModal } from '../components/GameModal';
@@ -104,7 +105,7 @@ export default function MapScreen() {
           <View key={group.unit.id}>
             <View style={styles.unitHead}>
               <View style={styles.unitEmoji}>
-                <Text style={styles.unitEmojiText}>{group.unit.emoji}</Text>
+                <CueIcon cue={group.unit.cue} size={38} />
               </View>
               <View style={styles.unitTitles}>
                 <Text style={type.label}>{`UNIT ${groupIndex + 1}`}</Text>
@@ -194,7 +195,7 @@ function RegionCard({
     >
       <View style={styles.regionHead}>
         <View style={[styles.regionEmoji, { backgroundColor: region.gradient[0] }]}>
-          <Text style={styles.regionEmojiText}>{region.emoji}</Text>
+          <CueIcon cue={region.cue} size={42} fallback={region.name} />
         </View>
         <View style={styles.regionTitles}>
           <Text style={type.label}>{`STOP ${index + 1} - ${TAG_LABELS[region.tag].toUpperCase()}`}</Text>
@@ -327,7 +328,6 @@ const styles = StyleSheet.create({
   continueText: { flex: 1, gap: 2 },
   unitHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingLeft: spacing.xs },
   unitEmoji: { width: 46, height: 46, borderRadius: radii.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card, borderWidth: 2, borderColor: colors.cardLine },
-  unitEmojiText: { fontSize: 24 },
   unitTitles: { flex: 1 },
   unitBlurb: { color: colors.inkSoft },
   unitLine: { ...type.small, paddingLeft: spacing.xs, paddingTop: 6 },
@@ -340,7 +340,6 @@ const styles = StyleSheet.create({
   regionCard: { gap: spacing.md, marginBottom: spacing.lg },
   regionHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   regionEmoji: { width: 52, height: 52, borderRadius: radii.md, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'rgba(255,255,255,0.7)' },
-  regionEmojiText: { fontSize: 26 },
   regionTitles: { flex: 1 },
   regionStarChip: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   regionStarText: { fontFamily: fonts.displayMid, fontSize: 14 },

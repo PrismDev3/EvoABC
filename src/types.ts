@@ -38,8 +38,8 @@ export interface WordEntry {
   /** Uppercase, letters only. */
   word: string;
   tag: WordTag;
-  /** Decorative picture cue. Empty string means "use the letter badge". */
-  emoji: string;
+  /** Picture cue key from src/art/cues. Empty string means "use the letter badge". */
+  cue: string;
   /** Short kid friendly description, also used as the read aloud sentence. */
   hint: string;
   /** Optional sentence shown for sight words. */
@@ -66,7 +66,8 @@ export interface Unit {
   id: string;
   title: string;
   blurb: string;
-  emoji: string;
+  /** Picture cue key from src/art/cues. */
+  cue: string;
 }
 
 export interface Level {
@@ -84,7 +85,8 @@ export interface Region {
   name: string;
   blurb: string;
   tag: WordTag;
-  emoji: string;
+  /** Picture cue key from src/art/cues. */
+  cue: string;
   gradient: [string, string];
   accent: string;
   words: WordEntry[];

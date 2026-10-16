@@ -4,6 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 import { colors, fonts, radii, shadow, spacing, type } from '../theme';
 import { ScreenScaffold } from '../components/ScreenScaffold';
+import { CueIcon } from '../art/CueIcon';
 import { ChunkyButton, IconButton } from '../components/Button';
 import { Badge, Panel, ProgressBar } from '../components/Cards';
 import { Hud } from '../components/Hud';
@@ -146,9 +147,12 @@ export default function HomeScreen() {
 
       <View style={styles.playBlock}>
         <ChunkyButton label="PLAY" tone="lava" size="lg" icon={<PlayIcon size={26} />} onPress={() => nav.push('play', { levelId: nextLevel.id })} />
-        <Text style={styles.nextLine} numberOfLines={1}>
-          {`Next: ${region.emoji} ${region.name} ${nextLevel.title}`}
-        </Text>
+        <View style={styles.nextLineRow}>
+          <CueIcon cue={region.cue} size={24} />
+          <Text style={styles.nextLine} numberOfLines={1}>
+            {`Next: ${region.name} ${nextLevel.title}`}
+          </Text>
+        </View>
         <ChunkyButton label="Choose a Level" tone="bone" size="md" icon={<MapIcon size={20} color={colors.ink} />} onPress={() => nav.push('map')} />
       </View>
 
@@ -298,7 +302,8 @@ const styles = StyleSheet.create({
   pipNow: { backgroundColor: colors.lava, height: 12, borderRadius: 6 },
   tapHint: { ...type.small, textAlign: 'center', marginTop: spacing.sm },
   playBlock: { marginTop: spacing.lg, gap: spacing.sm, alignItems: 'center' },
-  nextLine: { ...type.bodyBold, textAlign: 'center' },
+  nextLineRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
+  nextLine: { ...type.bodyBold, textAlign: 'center', flexShrink: 1 },
   tileRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg },
   tileRowTight: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
   testNudge: { ...type.bodyBold, color: colors.grapeDark, textAlign: 'center', marginTop: spacing.sm },

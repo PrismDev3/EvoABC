@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { colors, fonts, radii, shadow, spacing, type } from '../theme';
 import { ScreenScaffold } from '../components/ScreenScaffold';
@@ -54,8 +54,14 @@ const PAGES: Page[] = [
 export default function OnboardingScreen() {
   const { completeOnboarding } = useGame();
   const nav = useNav();
+  const { height } = useWindowDimensions();
   const [page, setPage] = useState(0);
   const [starter, setStarter] = useState<string>(STARTER_SKIN_IDS[0] ?? 'rex_verdant');
+
+  // The hero art is sized from the screen instead of being a fixed 300 points,
+  // so the button below it always stays on screen and never ends up sitting on
+  // the home indicator on a shorter iPhone.
+  const heroSize = Math.max(168, Math.min(296, Math.round(height * 0.3)));
 
   const starters = useMemo(() => STARTER_SKIN_IDS.map(skinById), []);
   const pickerPage = page >= PAGES.length;
@@ -83,7 +89,7 @@ export default function OnboardingScreen() {
   };
 
   return (
-    <ScreenScaffold scroll={false}>
+    <ScreenScaffold scroll>
       <View style={styles.root}>
         <View style={styles.topRow}>
           {!pickerPage ? (
@@ -104,7 +110,7 @@ export default function OnboardingScreen() {
               </Text>
             </PopIn>
             <Bobbing amount={8}>
-              <Dino skin={heroSkin} stageIndex={0} size={150} />
+              <Dino skin={heroSkin} stageIndex={0} size={Math.round(heroSize * 0.52)} />
             </Bobbing>
             <View style={styles.starterGrid}>
               {starters.map((skin) => {
@@ -148,9 +154,9 @@ export default function OnboardingScreen() {
         ) : (
           <View style={styles.pageWrap}>
             <PopIn key={current.key} from={0.75}>
-              <View style={[styles.heroCard, { backgroundColor: current.tint }]}>
+              <View style={[styles.heroCard, { backgroundColor: current.tint, width: heroSize, height: heroSize }]}>
                 <Bobbing amount={10}>
-                  <Dino skin={heroSkin} stageIndex={current.stage} size={182} />
+                  <Dino skin={heroSkin} stageIndex={current.stage} size={Math.round(heroSize * 0.62)} />
                 </Bobbing>
               </View>
             </PopIn>
@@ -183,14 +189,11 @@ const styles = StyleSheet.create({
   topRow: { flexDirection: 'row', justifyContent: 'flex-end', minHeight: 42, alignItems: 'center' },
   stepPill: { backgroundColor: 'rgba(255,255,255,0.7)', paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radii.pill },
   stepText: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.inkSoft },
-  pageWrap: { flex: 1, justifyContent: 'space-between' },
+  pageWrap: { flex: 1, justifyContent: 'space-between', paddingTop: spacing.sm },
   heroCard: {
     alignSelf: 'center',
     alignItems: 'center',
     justifyContent: 'center',
-    width: '100%',
-    maxWidth: 300,
-    aspectRatio: 1,
     borderRadius: radii.xl,
     borderWidth: 3,
     borderColor: 'rgba(255,255,255,0.9)',
@@ -200,7 +203,8 @@ const styles = StyleSheet.create({
   copy: { paddingHorizontal: spacing.md, gap: spacing.sm },
   center: { textAlign: 'center' },
   lead: { paddingHorizontal: spacing.sm },
-  footer: { gap: spacing.md, paddingBottom: spacing.sm },
+  // Extra room under the button so it clears the iOS home indicator easily.
+  footer: { gap: spacing.md, paddingBottom: spacing.lg },
   dots: { flexDirection: 'row', justifyContent: 'center', gap: spacing.sm },
   dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: 'rgba(23,38,61,0.18)' },
   dotOn: { backgroundColor: colors.lava, width: 26 },

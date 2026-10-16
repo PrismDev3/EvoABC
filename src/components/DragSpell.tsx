@@ -7,10 +7,17 @@ import { haptic } from '../lib/feedback';
 import { playSfx } from '../audio/sfx';
 
 /**
- * Drag and drop letter blocks. Letters are validated in order as they land:
- * the right letter snaps in and the wrong one bounces back with a wobble.
- * A plain tap on a tile places it too, which matters for small fingers and
- * for anyone who finds dragging hard.
+ * Drag and drop letter blocks. Letters are checked in order as they land: the
+ * right letter snaps into the row and the wrong one bounces back with a wobble.
+ *
+ * The gesture handling here is deliberate. A plain PanResponder that only asks
+ * for the responder once the finger has already moved loses the fight with the
+ * ScrollView it sits inside, which is why dragging a letter used to do nothing
+ * at all. Instead each tile claims the responder the moment a finger touches
+ * it, waits to see whether the finger travels more than a few points, and then
+ * decides by itself whether this was a drag or a tap. The screen is also told
+ * to stop scrolling while a tile is up, so the board cannot slide away under
+ * the finger.
  */
 
 interface DragTile {
@@ -25,6 +32,11 @@ interface Rect {
   height: number;
 }
 
+/** How far a finger may travel before a touch counts as a drag, not a tap. */
+const TAP_SLOP = 9;
+/** How far outside the letter row a drop still counts, in points. */
+const DROP_SLOP = 74;
+
 interface DragSpellProps {
   word: string;
   letters: string[];
@@ -32,6 +44,12 @@ interface DragSpellProps {
   onWrong: () => void;
   locked?: boolean;
   tileSize?: number;
+  /** Told when a tile is picked up and put down, so the page can stop scrolling. */
+  onDragStateChange?: (dragging: boolean) => void;
+}
+
+interface TileApi {
+  reset: () => void;
 }
 
 function DraggableTile({
@@ -39,9 +57,9 @@ function DraggableTile({
   size,
   disabled,
   wrong,
-  dragging,
-  onDragStart,
-  onDragEnd,
+  lifted,
+  onPickUp,
+  onDrop,
   onTap,
   register,
 }: {
@@ -49,50 +67,59 @@ function DraggableTile({
   size: number;
   disabled: boolean;
   wrong: boolean;
-  dragging: boolean;
-  onDragStart: () => void;
-  onDragEnd: (point: { x: number; y: number }) => void;
+  lifted: boolean;
+  onPickUp: () => void;
+  onDrop: (point: { x: number; y: number }) => void;
   onTap: () => void;
-  register: (id: string, api: { reset: () => void; place: () => void } | null) => void;
+  register: (id: string, api: TileApi | null) => void;
 }) {
   const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
-  const [lifted, setLifted] = useState(false);
+  const [held, setHeld] = useState(false);
 
   const snapBack = useCallback(() => {
-    Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: false, friction: 6, tension: 90 }).start();
+    Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: false, friction: 7, tension: 110 }).start();
   }, [pan]);
 
   useEffect(() => {
-    register(tile.id, { reset: snapBack, place: snapBack });
+    register(tile.id, { reset: snapBack });
     return () => register(tile.id, null);
   }, [register, snapBack, tile.id]);
 
   const responder = useMemo(
     () =>
       PanResponder.create({
-        onStartShouldSetPanResponder: () => false,
-        onMoveShouldSetPanResponder: (_evt, gesture) => !disabled && (Math.abs(gesture.dx) > 6 || Math.abs(gesture.dy) > 6),
+        // Claim the touch straight away: waiting for movement hands the gesture
+        // to whatever ScrollView is around us.
+        onStartShouldSetPanResponder: () => !disabled,
+        onStartShouldSetPanResponderCapture: () => !disabled,
+        onMoveShouldSetPanResponder: () => !disabled,
         onPanResponderGrant: () => {
-          setLifted(true);
-          onDragStart();
+          setHeld(true);
+          onPickUp();
         },
-        onPanResponderMove: (evt, gesture) => {
+        onPanResponderMove: (_event, gesture) => {
           pan.setValue({ x: gesture.dx, y: gesture.dy });
-          void evt;
         },
-        onPanResponderRelease: (_evt, gesture) => {
-          onDragEnd({ x: gesture.moveX, y: gesture.moveY });
-          setLifted(false);
+        onPanResponderRelease: (_event, gesture) => {
+          setHeld(false);
+          if (Math.abs(gesture.dx) < TAP_SLOP && Math.abs(gesture.dy) < TAP_SLOP) {
+            onTap();
+            return;
+          }
+          onDrop({ x: gesture.moveX, y: gesture.moveY });
         },
         onPanResponderTerminate: () => {
-          setLifted(false);
+          setHeld(false);
           snapBack();
+          onDrop({ x: -1, y: -1 });
         },
+        onPanResponderTerminationRequest: () => false,
       }),
-    [disabled, onDragEnd, onDragStart, pan, snapBack],
+    [disabled, onDrop, onPickUp, onTap, pan, snapBack],
   );
 
   const tone = wrong ? colors.danger : colors.card;
+  const raised = held || lifted;
 
   return (
     <Animated.View
@@ -100,16 +127,12 @@ function DraggableTile({
       style={[
         styles.dragTileWrap,
         {
-          zIndex: lifted ? 40 : 1,
-          transform: [{ translateX: pan.x }, { translateY: pan.y }, { scale: lifted ? 1.12 : 1 }],
+          zIndex: raised ? 40 : 1,
+          transform: [{ translateX: pan.x }, { translateY: pan.y }, { scale: raised ? 1.14 : 1 }],
         },
       ]}
     >
       <View
-        onStartShouldSetResponder={() => false}
-        onResponderRelease={() => {
-          if (!disabled && !lifted) onTap();
-        }}
         style={[
           styles.dragTile,
           {
@@ -120,12 +143,11 @@ function DraggableTile({
             borderColor: wrong ? '#FFA3A6' : colors.cardLine,
             opacity: disabled ? 0.5 : 1,
           },
-          shadow(lifted ? 3 : 1),
-          dragging && wrong ? { borderWidth: 3 } : null,
+          shadow(raised ? 3 : 1),
         ]}
         accessible
         accessibilityRole="button"
-        accessibilityLabel={`Letter ${tile.letter}. Tap or drag to place it.`}
+        accessibilityLabel={`Letter ${tile.letter}. Tap it or drag it into the boxes.`}
       >
         <Text style={[styles.dragLetter, { fontSize: size * 0.5, lineHeight: size * 0.6 }]}>{tile.letter}</Text>
       </View>
@@ -133,42 +155,55 @@ function DraggableTile({
   );
 }
 
-export function DragSpell({ word, letters, onSolved, onWrong, locked = false, tileSize = 58 }: DragSpellProps) {
+export function DragSpell({
+  word,
+  letters,
+  onSolved,
+  onWrong,
+  locked = false,
+  tileSize = 58,
+  onDragStateChange,
+}: DragSpellProps) {
   const [tray, setTray] = useState<DragTile[]>(() => letters.map((letter, index) => ({ id: `${letter}-${index}`, letter })));
   const [placed, setPlaced] = useState<string[]>([]);
   const [wrongId, setWrongId] = useState<string | null>(null);
   const [liftedId, setLiftedId] = useState<string | null>(null);
   const slotsRef = useRef<View | null>(null);
   const slotRect = useRef<Rect | null>(null);
-  const tileApi = useRef<Map<string, { reset: () => void; place: () => void }>>(new Map());
+  const tileApi = useRef<Map<string, TileApi>>(new Map());
   const solvedRef = useRef(false);
 
-  const measureSlots = useCallback(
-    () =>
-      new Promise<Rect | null>((resolve) => {
-        const node = slotsRef.current;
-        if (node === null) {
-          resolve(null);
-          return;
-        }
-        node.measureInWindow((x, y, width, height) => {
-          const rect: Rect = { x, y, width, height };
-          slotRect.current = rect;
-          resolve(rect);
-        });
-      }),
-    [],
-  );
+  /** Measures the letter row so a drop anywhere near it counts. */
+  const measureSlots = useCallback(async (): Promise<Rect | null> => {
+    const node = slotsRef.current;
+    if (node === null) return slotRect.current;
+    return new Promise<Rect | null>((resolve) => {
+      node.measureInWindow((x, y, width, height) => {
+        const rect: Rect = { x, y, width, height };
+        slotRect.current = rect;
+        resolve(rect);
+      });
+    });
+  }, []);
 
   useEffect(() => {
     setTray(letters.map((letter, index) => ({ id: `${letter}-${index}`, letter })));
     setPlaced([]);
     setWrongId(null);
+    setLiftedId(null);
     solvedRef.current = false;
     slotRect.current = null;
   }, [letters, word]);
 
-  const register = useCallback((id: string, api: { reset: () => void; place: () => void } | null) => {
+  // A fresh word takes the size the board just laid out.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void measureSlots();
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [measureSlots, word]);
+
+  const register = useCallback((id: string, api: TileApi | null) => {
     if (api === null) tileApi.current.delete(id);
     else tileApi.current.set(id, api);
   }, []);
@@ -183,9 +218,7 @@ export function DragSpell({ word, letters, onSolved, onWrong, locked = false, ti
         setTray((current) => current.filter((item) => item.id !== tile.id));
         playSfx('tap');
         haptic('light');
-        if (nextPlaced.length === word.length) {
-          solvedRef.current = true;
-        }
+        if (nextPlaced.length === word.length) solvedRef.current = true;
         return true;
       }
       setWrongId(tile.id);
@@ -205,37 +238,66 @@ export function DragSpell({ word, letters, onSolved, onWrong, locked = false, ti
     return undefined;
   }, [onSolved, placed.length, word.length]);
 
-  const handleDrop = useCallback(
-    async (tile: DragTile, point: { x: number; y: number }): Promise<boolean> => {
-      const rect = slotRect.current ?? (await measureSlots());
-      if (rect === null) return false;
-      const inside =
-        point.x >= rect.x - 26 && point.x <= rect.x + rect.width + 26 && point.y >= rect.y - 46 && point.y <= rect.y + rect.height + 46;
-      if (!inside) return false;
-      return attempt(tile);
+  const pickUp = useCallback(
+    (tile: DragTile) => {
+      setLiftedId(tile.id);
+      haptic('light');
+      onDragStateChange?.(true);
+      void measureSlots();
     },
-    [attempt, measureSlots],
+    [measureSlots, onDragStateChange],
+  );
+
+  const putDown = useCallback(
+    (tile: DragTile, point: { x: number; y: number }) => {
+      setLiftedId(null);
+      onDragStateChange?.(false);
+      if (point.x < 0 && point.y < 0) return;
+      const rect = slotRect.current;
+      if (rect === null) {
+        tileApi.current.get(tile.id)?.reset();
+        return;
+      }
+      const inside =
+        point.x >= rect.x - DROP_SLOP &&
+        point.x <= rect.x + rect.width + DROP_SLOP &&
+        point.y >= rect.y - DROP_SLOP &&
+        point.y <= rect.y + rect.height + DROP_SLOP;
+      if (!inside || !attempt(tile)) tileApi.current.get(tile.id)?.reset();
+    },
+    [attempt, onDragStateChange],
   );
 
   const undo = useCallback(() => {
     if (locked || placed.length === 0) return;
     const letter = placed[placed.length - 1];
     if (letter === undefined) return;
-    setPlaced((current) => current.slice(0, -1));
-    setTray((current) => [...current, { id: `${letter}-undo-${current.length}`, letter }]);
+    const nextPlaced = placed.slice(0, -1);
+    setPlaced(nextPlaced);
+    setTray((current) => [...current, { id: `${letter}-undo-${current.length}-${nextPlaced.length}`, letter }]);
     solvedRef.current = false;
     playSfx('whoosh');
     haptic('light');
   }, [locked, placed]);
 
-  const filled: (string | null)[] = useMemo(() => Array.from({ length: word.length }, (_, index) => placed[index] ?? null), [placed, word.length]);
+  const filled: (string | null)[] = useMemo(
+    () => Array.from({ length: word.length }, (_, index) => placed[index] ?? null),
+    [placed, word.length],
+  );
+
+  const helper =
+    liftedId !== null
+      ? 'Drop it in the boxes up there'
+      : placed.length === 0
+        ? 'Drag a letter into the boxes, or just tap it'
+        : 'Keep going, one letter at a time';
 
   return (
     <View style={styles.wrap}>
       <View ref={slotsRef} collapsable={false} onLayout={() => void measureSlots()}>
         <WordSlots total={word.length} filled={filled} activeIndex={placed.length} size={tileSize + 6} onPressSlot={() => undo()} />
       </View>
-      <Text style={[type.small, styles.helper]}>{placed.length === 0 ? 'Drag a letter into the boxes, or just tap it' : 'Keep going, one letter at a time'}</Text>
+      <Text style={[type.small, styles.helper]}>{helper}</Text>
       <View style={styles.tray}>
         {tray.map((tile) => (
           <DraggableTile
@@ -244,18 +306,10 @@ export function DragSpell({ word, letters, onSolved, onWrong, locked = false, ti
             size={tileSize}
             disabled={locked}
             wrong={wrongId === tile.id}
-            dragging={liftedId === tile.id}
+            lifted={liftedId === tile.id}
             register={register}
-            onDragStart={() => {
-              setLiftedId(tile.id);
-              void measureSlots();
-            }}
-            onDragEnd={(point) => {
-              setLiftedId(null);
-              void handleDrop(tile, point).then((accepted) => {
-                if (!accepted) tileApi.current.get(tile.id)?.reset();
-              });
-            }}
+            onPickUp={() => pickUp(tile)}
+            onDrop={(point) => putDown(tile, point)}
             onTap={() => attempt(tile)}
           />
         ))}
@@ -267,8 +321,16 @@ export function DragSpell({ word, letters, onSolved, onWrong, locked = false, ti
 const styles = StyleSheet.create({
   wrap: { alignItems: 'center', gap: spacing.md, width: '100%' },
   helper: { textAlign: 'center' },
-  tray: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm, minHeight: 80 },
+  tray: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+    minHeight: 80,
+  },
   dragTileWrap: { alignItems: 'center', justifyContent: 'center' },
-  dragTile: { alignItems: 'center', justifyContent: 'center', borderWidth: 3 },
+  dragTile: { alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderRadius: radii.md },
   dragLetter: { fontFamily: 'Baloo2_800ExtraBold', color: colors.ink, textAlign: 'center' },
 });

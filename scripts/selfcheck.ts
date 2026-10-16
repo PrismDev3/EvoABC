@@ -6,6 +6,25 @@
 
 declare const console: { log: (...args: unknown[]) => void; warn: (...args: unknown[]) => void };
 declare const process: { exitCode: number };
+declare const require: (id: string) => unknown;
+
+/**
+ * The icon packs are plain JSON glyph maps, so the self check can prove that
+ * every cue points at a glyph that actually exists in the shipped font.
+ */
+function loadGlyphs(fileName: string): Record<string, number> {
+  // The compiled self check lives in .selfcheck/scripts, hence the two hops up.
+  try {
+    return require(`../../node_modules/@expo/vector-icons/build/vendor/react-native-vector-icons/glyphmaps/${fileName}`) as Record<
+      string,
+      number
+    >;
+  } catch {
+    throw new Error(
+      `Could not read the icon glyph map ${fileName}. If @expo/vector-icons changed where it keeps its fonts, update loadGlyphs in scripts/selfcheck.ts and scripts/list-icons.js together.`,
+    );
+  }
+}
 
 import {
   ALL_LEVELS,
@@ -41,6 +60,8 @@ import {
   spokenSpelling,
 } from '../src/game/testplan';
 import { chunkWord, detectPattern, patternForWord } from '../src/game/phonics';
+import { CUE_CATALOGS, cueSpec } from '../src/art/cues';
+import { spokenLetters, soundChunks, soundOutText, spokenWord, tidySentence } from '../src/lib/phonemes';
 import { LevelProgress } from '../src/types';
 
 let passed = 0;
@@ -132,10 +153,10 @@ check('a careless run scores fewer stars', sloppyOutcome.stars <= 2, String(slop
 check('a combo pays more coins', winning.bestCombo === 5);
 
 console.log('\nQuestion building');
-const longWord = { word: 'SPIKES', tag: 'dino' as const, emoji: '', hint: 'Sharp points along a tail' };
+const longWord = { word: 'SPIKES', tag: 'dino' as const, cue: '', hint: 'Sharp points along a tail' };
 const built = buildQuestion(longWord, 0, seeded(0.4));
 check('build questions shuffle six letters', built.letters.length === 6);
-const missing = buildQuestion({ word: 'CAT', tag: 'cvc' as const, emoji: '', hint: 'A furry pet' }, 1, seeded(0.5), 0);
+const missing = buildQuestion({ word: 'CAT', tag: 'cvc' as const, cue: '', hint: 'A furry pet' }, 1, seeded(0.5), 0);
 check('short words can ask for the missing letter', missing.mode === 'build' || missing.choices.length === 4);
 
 console.log('\nEgg crates and loot');
@@ -292,6 +313,83 @@ const cakePattern = patternForWord('CAKE', lookupWord('CAKE'));
 check('the bank knows the magic e word too', cakePattern !== null && cakePattern.silent.join(',') === '3', cakePattern?.silent.join(',') ?? 'none');
 const unknownPattern = patternForWord('SPLASH', null);
 check('a word outside the bank is still taught', unknownPattern !== null, unknownPattern?.pair ?? 'none');
+
+console.log('\nPicture cues, not emoji');
+const allWordCues = REGIONS.flatMap((region) => region.words.map((word) => word.cue));
+const allCues = [...REGIONS.map((region) => region.cue), ...UNITS.map((unit) => unit.cue), ...allWordCues];
+/** A real cue key is lowercase kebab case. Anything else, such as an emoji, fails. */
+const isCueKey = (key: string) => /^[a-z0-9]+(-[a-z0-9]+)*$/.test(key);
+check('every word carries a picture cue', allWordCues.length >= 280, String(allWordCues.length));
+check(
+  'no cue is still an emoji',
+  allCues.every(isCueKey),
+  [...new Set(allCues.filter((key) => !isCueKey(key)))].slice(0, 8).join(' '),
+);
+const missingCues = [...new Set(allCues)].filter((key) => cueSpec(key) === null);
+check('every cue key has a picture drawn for it', missingCues.length === 0, `${missingCues.length}: ${missingCues.slice(0, 8).join(', ')}`);
+const glyphs: Record<string, Record<string, number>> = {
+  mci: loadGlyphs('MaterialCommunityIcons.json'),
+  fa6: loadGlyphs('FontAwesome6Free.json'),
+};
+const badNames: string[] = [];
+const conflicts: string[] = [];
+const seenCue = new Map<string, string>();
+for (const { catalog } of CUE_CATALOGS) {
+  for (const [key, spec] of Object.entries(catalog)) {
+    const pack = spec.pack ?? 'mci';
+    if (glyphs[pack]?.[spec.name] === undefined) badNames.push(`${key}=${pack}:${spec.name}`);
+    const id = `${pack}:${spec.name}`;
+    const previous = seenCue.get(key);
+    if (previous !== undefined && previous !== id) conflicts.push(`${key} (${previous} or ${id})`);
+    seenCue.set(key, id);
+  }
+}
+check('every cue points at a real icon name', badNames.length === 0, badNames.slice(0, 8).join(', '));
+check('a shared cue key always means the same picture', conflicts.length === 0, conflicts.slice(0, 5).join(', '));
+check(
+  'the icon library is filled in',
+  CUE_CATALOGS.every((entry) => Object.keys(entry.catalog).length > 0),
+  CUE_CATALOGS.filter((entry) => Object.keys(entry.catalog).length === 0).map((entry) => entry.file).join(', '),
+);
+
+console.log('\nThe voice that reads words out loud');
+check('a spelling is dictated with letter names', spokenLetters('CAT') === 'see, ay and tee', spokenLetters('CAT'));
+check('one letter is read as its name', spokenLetters('A') === 'ay', spokenLetters('A'));
+check('punctuation never reaches the voice', spokenLetters('c-a t!') === 'see, ay and tee', spokenLetters('c-a t!'));
+check('a word is said as a word, not as capitals', spokenWord('CAT') === 'Cat', spokenWord('CAT'));
+check('a single letter keeps its name', spokenWord('A') === 'A', spokenWord('A'));
+check('a spoken line gets one full stop', tidySentence('Hear the word') === 'Hear the word.', tidySentence('Hear the word'));
+check('a line that already ends is left alone', tidySentence('Well done!') === 'Well done.', tidySentence('Well done!'));
+check('an empty line stays empty', tidySentence('   ') === '');
+check('a plain word sounds out letter by letter', soundOutText('CAT') === 'kuh, ah, tuh', String(soundOutText('CAT')));
+check('a letter team sounds as one', soundOutText('SHIP') === 'shh, ih, puh', String(soundOutText('SHIP')));
+check('ph says f', soundOutText('DOLPHIN') === 'duh, aw, lll, fff, ih, nnn', String(soundOutText('DOLPHIN')));
+check('a silent k is not sounded', soundOutText('KNEE') === 'n, ee', String(soundOutText('KNEE')));
+check('a silent b is not sounded', soundOutText('LAMB') === 'lll, ah, m', String(soundOutText('LAMB')));
+check('a magic e lengthens the vowel and stays quiet', soundOutText('CAKE') === 'kuh, ay, kuh', String(soundOutText('CAKE')));
+check('a bossy r makes one sound', soundOutText('FORK') === 'fff, or, kuh', String(soundOutText('FORK')));
+check('a vowel team makes one sound', soundOutText('RAINBOW') === 'rrr, ay, nnn, buh, ow', String(soundOutText('RAINBOW')));
+check('an ending is sounded as a chunk', soundOutText('SPRING') === 'sss, puh, rrr, ing', String(soundOutText('SPRING')));
+check('a word with nothing to sound out says so', soundOutText('A') === null);
+check('a two sound word still sounds out', soundOutText('AT') === 'ah, tuh', String(soundOutText('AT')));
+check(
+  'every school word can be sounded out or said slowly',
+  ALL_LEVELS.flatMap((level) => level.words).every((word) => soundOutText(word.word) !== null || soundChunks(word.word).length <= 1),
+);
+check(
+  'sounding out covers every letter of every word',
+  REGIONS.every((region) =>
+    region.words.every((word) => {
+      const spelled = soundChunks(word.word).join('');
+      // The only letter the sounds may drop is a silent final e.
+      return spelled === word.word || spelled === word.word.slice(0, -1);
+    }),
+  ),
+  REGIONS.flatMap((region) => region.words.map((word) => word.word)).find((word) => {
+    const spelled = soundChunks(word).join('');
+    return spelled !== word && spelled !== word.slice(0, -1);
+  }) ?? '',
+);
 
 console.log('\nCurriculum integrity');
 check('every region id is unique', new Set(REGIONS.map((region) => region.id)).size === REGIONS.length);

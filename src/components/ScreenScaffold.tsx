@@ -19,6 +19,11 @@ interface ScreenScaffoldProps {
   children: React.ReactNode;
   gradient?: readonly [string, string, ...string[]];
   scroll?: boolean;
+  /**
+   * Turn scrolling off while something inside is being dragged, so a finger
+   * that is moving a letter tile cannot drag the page out from under it.
+   */
+  scrollEnabled?: boolean;
   padded?: boolean;
   contentStyle?: ViewStyle;
   edges?: ('top' | 'bottom' | 'left' | 'right')[];
@@ -29,6 +34,7 @@ export function ScreenScaffold({
   children,
   gradient = gradients.sky,
   scroll = false,
+  scrollEnabled = true,
   padded = true,
   contentStyle,
   edges = ['top', 'bottom'],
@@ -47,6 +53,7 @@ export function ScreenScaffold({
           <ScrollView
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
+            scrollEnabled={scrollEnabled}
             bounces
             keyboardShouldPersistTaps="handled"
           >
@@ -74,7 +81,8 @@ function Hills() {
 
 interface ScreenHeaderProps {
   title: string;
-  subtitle?: string;
+  /** Plain text gets the body type style; a node is drawn as it comes, for rows with an icon. */
+  subtitle?: React.ReactNode;
   onBack?: () => void;
   right?: React.ReactNode;
   compact?: boolean;
@@ -89,10 +97,12 @@ export function ScreenHeader({ title, subtitle, onBack, right, compact = false }
           <Text style={type.h1} numberOfLines={1}>
             {title}
           </Text>
-          {subtitle !== undefined ? (
+          {typeof subtitle === 'string' ? (
             <Text style={type.body} numberOfLines={2}>
               {subtitle}
             </Text>
+          ) : subtitle !== undefined ? (
+            <View style={styles.headerSubtitle}>{subtitle}</View>
           ) : null}
         </View>
       </View>
@@ -114,6 +124,7 @@ const styles = StyleSheet.create({
   headerCompact: { paddingVertical: spacing.sm },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 },
   headerText: { flex: 1 },
+  headerSubtitle: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
 });
 
