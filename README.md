@@ -155,7 +155,9 @@ The repository ships a GitHub Actions workflow that compiles the ipa on GitHub's
 own macOS runners. You never need a Mac, Xcode or a Terminal on your own
 machine.
 
-1. Push the project to a GitHub repository (public or private, either works).
+1. The project already lives in a public repository,
+   `https://github.com/PrismDev3/EvoABC`, so this step is done. Your own fork
+   or copy works exactly the same way.
 2. Open the **Actions** tab. The **Build iOS IPA** workflow runs automatically on
    every push to `main`. You can also run it by hand with **Run workflow**.
 3. Wait for the run to finish (usually 15 to 25 minutes the first time, then
@@ -182,6 +184,12 @@ machine.
 A tag push such as `git tag v1.0.0 && git push origin v1.0.0` also attaches the
 same `EvoABC.ipa` to the GitHub **Releases** page, which is the easiest link to
 share with another parent.
+
+The newest ipa is at
+`https://github.com/PrismDev3/EvoABC/releases/latest/download/EvoABC.ipa`. That
+link needs **no GitHub account**, unlike the artifacts inside a workflow run,
+which GitHub only hands to signed-in users. Send the release link to another
+parent and they can download the file straight from a browser.
 
 ### Optional: a signed build with EAS
 
