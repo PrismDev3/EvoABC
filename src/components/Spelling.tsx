@@ -141,8 +141,24 @@ function SlotTile({ letter, size, state, active, onPress }: { letter: string; si
   );
 }
 
-/** Round button that reads the word out loud. */
-export function SpeakerButton({ onPress, label = 'Hear it again', tint = colors.gem, size = 52 }: { onPress: () => void; label?: string; tint?: string; size?: number }) {
+/**
+ * Round button that reads the word out loud. Stacked puts the label under the
+ * circle in a fixed width column, which is how three of them sit in one neat
+ * row on a phone instead of wrapping into a pile.
+ */
+export function SpeakerButton({
+  onPress,
+  label = 'Hear it again',
+  tint = colors.gem,
+  size = 52,
+  stacked = false,
+}: {
+  onPress: () => void;
+  label?: string;
+  tint?: string;
+  size?: number;
+  stacked?: boolean;
+}) {
   return (
     <Pressable
       onPress={() => {
@@ -152,12 +168,14 @@ export function SpeakerButton({ onPress, label = 'Hear it again', tint = colors.
       }}
       accessibilityRole="button"
       accessibilityLabel={label}
-      style={styles.speakerRow}
+      style={stacked ? styles.speakerCell : styles.speakerRow}
     >
       <View style={[styles.speakerCircle, { backgroundColor: tint, width: size, height: size, borderRadius: size / 2 }, shadow(1)]}>
         <SoundOnIcon size={size * 0.5} color="#053A4D" />
       </View>
-      <Text style={type.bodyBold}>{label}</Text>
+      <Text style={[type.bodyBold, stacked ? styles.speakerCellLabel : null]} numberOfLines={stacked ? 2 : 1}>
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -200,6 +218,8 @@ const styles = StyleSheet.create({
   slotTile: { alignItems: 'center', justifyContent: 'center', borderWidth: 2 },
   slotBase: { height: 5, borderRadius: 3, marginTop: 3 },
   speakerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  speakerCell: { alignItems: 'center', gap: 6, width: 96 },
+  speakerCellLabel: { textAlign: 'center', fontSize: 13, lineHeight: 16 },
   speakerCircle: { alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'rgba(255,255,255,0.7)' },
   cueWrap: { alignItems: 'center', gap: spacing.sm },
   cueCard: { alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: colors.cardLine },

@@ -101,6 +101,42 @@ export const SoundOffIcon = ({ size = 24, color = '#8A9AB3' }: IconProps) => (
   </Svg>
 );
 
+/** Speaker with a single wave, used for anything that plays a sound. */
+export const SpeakerIcon = ({ size = 24, color = '#4FD1FF' }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Polygon points="3.4,9 7,9 11.6,5 11.6,19 7,15 3.4,15" fill={color} />
+    <Path d="M15.2 9.6a3.6 3.6 0 010 4.8" stroke={color} strokeWidth={2.1} strokeLinecap="round" fill="none" />
+  </Svg>
+);
+
+/** Note with a flag, used for the background music row. */
+export const MusicIcon = ({ size = 24, color = '#7B5CFF' }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Circle cx={8.4} cy={17} r={3.4} fill={color} />
+    <Rect x={10.9} y={4.2} width={2.4} height={12.8} rx={1.2} fill={color} />
+    <Path d="M13.2 4.3c3.2.8 5.6 2.6 6.8 5.5-2.2-1.7-4.4-2.5-6.8-2.7z" fill={color} />
+  </Svg>
+);
+
+/** Phone with motion lines, used for the vibration row. */
+export const VibrateIcon = ({ size = 24, color = '#3DDC84' }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Rect x={8.6} y={3.6} width={6.8} height={16.8} rx={2.4} fill={color} />
+    <Rect x={10.4} y={5.8} width={3.2} height={1.5} rx={0.75} fill="#FFFFFF" opacity={0.85} />
+    <Path d="M5.6 8.6c-1.2 2.1-1.2 4.7 0 6.8" stroke={color} strokeWidth={1.8} strokeLinecap="round" fill="none" opacity={0.75} />
+    <Path d="M18.4 8.6c1.2 2.1 1.2 4.7 0 6.8" stroke={color} strokeWidth={1.8} strokeLinecap="round" fill="none" opacity={0.75} />
+  </Svg>
+);
+
+/** Microphone on a stand, used for the reading voice and the word pace. */
+export const MicIcon = ({ size = 24, color = '#FF4D6D' }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Rect x={8.6} y={2.6} width={6.8} height={11.4} rx={3.4} fill={color} />
+    <Path d="M5.6 11.2a6.4 6.4 0 0012.8 0" stroke={color} strokeWidth={2.1} strokeLinecap="round" fill="none" />
+    <Path d="M12 17.8v3.4M9 21.2h6" stroke={color} strokeWidth={2} strokeLinecap="round" />
+  </Svg>
+);
+
 export const MapIcon = ({ size = 24, color = '#3DDC84' }: IconProps) => (
   <Svg width={size} height={size} viewBox="0 0 24 24">
     <Path d="M3 6.6l6-2.2 6 2.2 6-2.2v13l-6 2.2-6-2.2-6 2.2z" fill={color} opacity={0.28} />

@@ -5,26 +5,68 @@ import { REGION_SEEDS, RegionSeed } from './words';
 export const WORDS_PER_LEVEL = 5;
 export const LEVELS_PER_REGION = 6;
 
-const rotate = <T,>(items: T[], start: number, count: number): T[] => {
-  const out: T[] = [];
-  if (items.length === 0) return out;
-  for (let i = 0; i < count; i += 1) {
-    const item = items[(start + i) % items.length];
-    if (item !== undefined) out.push(item);
+/** A stable number from a region id, so every install meets the words in the same order. */
+function hashSeed(text: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+/** A deterministic shuffle, so the trail is identical on every device. */
+function shuffled<T>(items: T[], seed: number): T[] {
+  const out = items.slice();
+  let state = seed >>> 0;
+  const next = () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  for (let index = out.length - 1; index > 0; index -= 1) {
+    const j = Math.floor(next() * (index + 1));
+    const a = out[index];
+    const b = out[j];
+    if (a !== undefined && b !== undefined) {
+      out[index] = b;
+      out[j] = a;
+    }
   }
   return out;
-};
+}
 
+/**
+ * Deals the region's words into six levels of five.
+ *
+ * This used to rotate the pool by two words per level, which put the same word
+ * in three levels in a row and made a whole region feel like one word on
+ * repeat. Instead every level gets its own shuffle and the words the child has
+ * just practised are pushed to the back of the queue, so a word never comes
+ * back in the level straight after it and never twice inside one level. With a
+ * pool of ten words or more, two levels in a row share nothing at all.
+ */
 function buildLevels(regionId: string, pool: WordEntry[]): Level[] {
   const levels: Level[] = [];
+
   for (let i = 0; i < LEVELS_PER_REGION; i += 1) {
     const boss = i === LEVELS_PER_REGION - 1;
+    const previousWords = new Set((levels[levels.length - 1]?.words ?? []).map((word) => word.word));
+    const order = shuffled(pool, hashSeed(`${regionId}:l${i + 1}`));
+    const words: WordEntry[] = [];
+
+    for (const word of [...order.filter((item) => !previousWords.has(item.word)), ...order.filter((item) => previousWords.has(item.word))]) {
+      if (words.length >= WORDS_PER_LEVEL) break;
+      if (!words.some((entry) => entry.word === word.word)) words.push(word);
+    }
+
     levels.push({
       id: `${regionId}_l${i + 1}`,
       regionId,
       index: i,
       title: boss ? `Boss Trial ${i + 1}` : `Level ${i + 1}`,
-      words: rotate(pool, i * 2, WORDS_PER_LEVEL),
+      words,
       boss,
       reward: { coins: 30 + i * 6 + (boss ? 40 : 0), gems: boss ? 2 : 0 },
     });

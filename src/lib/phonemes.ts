@@ -60,13 +60,21 @@ export const LETTER_NAMES: Record<string, string> = {
 
 /** Turns CAT into "see, ay and tee", which is how a spelling is dictated. */
 export function spokenLetters(word: string): string {
-  const names = cleanWord(word)
-    .toUpperCase()
-    .split('')
-    .map((letter) => LETTER_NAMES[letter] ?? letter.toLowerCase());
+  const names = spokenLetterList(word);
   if (names.length === 0) return '';
   if (names.length === 1) return names[0] ?? '';
   return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1] ?? ''}`;
+}
+
+/**
+ * The letter names, one per letter. The voice says these as separate steps so
+ * each one lands on its own instead of running together into a blur.
+ */
+export function spokenLetterList(word: string): string[] {
+  return cleanWord(word)
+    .toUpperCase()
+    .split('')
+    .map((letter) => LETTER_NAMES[letter] ?? letter.toLowerCase());
 }
 
 /**
@@ -146,6 +154,84 @@ export const SOUND_NAMES: Record<string, string> = {
   IGH: 'eye',
 };
 
+/**
+ * A short real word that begins with the sound. A voice engine guesses at a
+ * bare spelling like "nnn" or "ah", so every sound is spoken with one of these
+ * as proof: "nnn, as in no" cannot be misheard the way "nnn" alone can.
+ */
+export const SOUND_ANCHORS: Record<string, string> = {
+  A: 'at',
+  E: 'egg',
+  I: 'it',
+  O: 'on',
+  U: 'up',
+  Y: 'yes',
+  B: 'bat',
+  C: 'cat',
+  D: 'dog',
+  F: 'fish',
+  G: 'gap',
+  H: 'hat',
+  J: 'jam',
+  K: 'kit',
+  L: 'leg',
+  M: 'map',
+  N: 'no',
+  P: 'pig',
+  Q: 'queen',
+  R: 'red',
+  S: 'sun',
+  T: 'top',
+  V: 'van',
+  W: 'wet',
+  X: 'box',
+  Z: 'zoo',
+  BB: 'bat',
+  CC: 'cat',
+  DD: 'dog',
+  FF: 'fish',
+  GG: 'gap',
+  LL: 'leg',
+  MM: 'map',
+  NN: 'no',
+  PP: 'pig',
+  RR: 'red',
+  SS: 'sun',
+  TT: 'top',
+  ZZ: 'zoo',
+  CK: 'duck',
+  SH: 'ship',
+  CH: 'chip',
+  TH: 'thin',
+  WH: 'when',
+  PH: 'phone',
+  GH: 'ghost',
+  KN: 'knee',
+  WR: 'wrist',
+  MB: 'lamb',
+  NG: 'song',
+  QU: 'queen',
+  LE: 'apple',
+  AI: 'rain',
+  AY: 'day',
+  EA: 'seat',
+  EE: 'see',
+  OA: 'boat',
+  OO: 'moon',
+  OU: 'out',
+  OW: 'cow',
+  OI: 'coin',
+  OY: 'boy',
+  AR: 'car',
+  OR: 'fork',
+  ER: 'her',
+  IR: 'bird',
+  UR: 'turn',
+  ING: 'ring',
+  OUGH: 'tough',
+  IGH: 'light',
+};
+
 const VOWELS = 'AEIOU';
 
 /** The name a vowel says when a magic e is holding the door open for it. */
@@ -210,23 +296,40 @@ function soundForChunk(chunk: string, letters: string, index: number): string {
   return SOUND_NAMES[chunk] ?? chunk.toLowerCase();
 }
 
+/** One sounding out step: the sound on its own, plus the word that proves it. */
+export interface SoundStep {
+  chunk: string;
+  sound: string;
+  /** A short real word the sound can be heard in, such as "no" for n. */
+  anchor: string;
+}
+
 /**
- * The sounds of a word, one at a time, as a line the voice can read:
- * DOLPHIN becomes "duh, aw, lll, fff, ih, nnn".
+ * The sounds of a word, one at a time, each with a word that shows it: DOLPHIN
+ * becomes duh as in dog, aw as in on, lll as in leg, and so on.
  *
  * Returns null when the word is too short or too plain to be worth sounding
  * out, in which case the caller should just say the word slowly instead.
  */
-export function soundOutText(word: string): string | null {
-  const letters = cleanWord(word).toUpperCase();
+export function soundOutSteps(input: string): SoundStep[] | null {
+  const letters = cleanWord(input).toUpperCase();
   const chunks = soundChunks(letters);
   if (chunks.length <= 1) return null;
   let cursor = 0;
-  return chunks
-    .map((chunk) => {
-      const sound = soundForChunk(chunk, letters, cursor);
-      cursor += chunk.length;
-      return sound;
-    })
-    .join(', ');
+  return chunks.map((chunk) => {
+    const sound = soundForChunk(chunk, letters, cursor);
+    cursor += chunk.length;
+    const anchor = SOUND_ANCHORS[chunk] ?? (SOUND_ANCHORS[sound.toUpperCase()] ?? '');
+    return { chunk, sound, anchor };
+  });
+}
+
+/**
+ * The same sounds as one plain line, without the example words:
+ * DOLPHIN becomes "duh, aw, lll, fff, ih, nnn".
+ */
+export function soundOutText(word: string): string | null {
+  const steps = soundOutSteps(word);
+  if (steps === null) return null;
+  return steps.map((step) => step.sound).join(', ');
 }

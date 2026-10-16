@@ -6,11 +6,26 @@ import { ScreenHeader, ScreenScaffold } from '../components/ScreenScaffold';
 import { ChunkyButton, CounterChip, PillButton } from '../components/Button';
 import { Badge, Divider, InfoRow, Panel, ProgressBar, StatPill } from '../components/Cards';
 import { GameModal } from '../components/GameModal';
-import { CheckIcon, CoinIcon, EggIcon, FlameIcon, GearsIcon, HeartIcon, PawIcon, SparkleIcon, StarIcon, TrophyIcon } from '../art/Icons';
+import {
+  CheckIcon,
+  CoinIcon,
+  EggIcon,
+  FlameIcon,
+  GearsIcon,
+  HeartIcon,
+  MicIcon,
+  MusicIcon,
+  PawIcon,
+  SparkleIcon,
+  SpeakerIcon,
+  StarIcon,
+  TrophyIcon,
+  VibrateIcon,
+} from '../art/Icons';
 import { useGame } from '../state/GameContext';
 import { useNav } from '../navigation/Navigator';
 import { TAG_LABELS, TAG_ORDER } from '../data/words';
-import { englishVoices, getVoiceId } from '../lib/tts';
+import { englishVoices, getVoiceId, speakLine, speakWord } from '../lib/tts';
 import { lifetimeXp } from '../game/economy';
 import { haptic } from '../lib/feedback';
 import { playSfx } from '../audio/sfx';
@@ -35,11 +50,14 @@ interface ToggleRowProps {
   hint: string;
   value: boolean;
   onChange: (next: boolean) => void;
+  /** Optional icon, always drawn in the same size badge so the rows line up. */
+  icon?: React.ReactNode;
 }
 
-function ToggleRow({ label, hint, value, onChange }: ToggleRowProps) {
+function ToggleRow({ label, hint, value, onChange, icon }: ToggleRowProps) {
   return (
     <View style={styles.toggleRow}>
+      {icon !== undefined ? <View style={styles.toggleBadge}>{icon}</View> : null}
       <View style={styles.toggleText}>
         <Text style={type.bodyBold}>{label}</Text>
         <Text style={type.small}>{hint}</Text>
@@ -132,13 +150,15 @@ export default function SettingsScreen() {
           hint="Coins, roars and fanfares"
           value={settings.sfx}
           onChange={(next) => updateSettings({ sfx: next })}
+          icon={<SpeakerIcon size={20} />}
         />
         <Divider />
         <ToggleRow
           label="Adventure music"
-          hint="A gentle background loop"
+          hint="A catchy background loop"
           value={settings.music}
           onChange={(next) => updateSettings({ music: next })}
+          icon={<MusicIcon size={20} />}
         />
         <Divider />
         <ToggleRow
@@ -146,6 +166,7 @@ export default function SettingsScreen() {
           hint="A little buzz on every tap"
           value={settings.haptics}
           onChange={(next) => updateSettings({ haptics: next })}
+          icon={<VibrateIcon size={20} />}
         />
         <Divider />
         <ToggleRow
@@ -153,6 +174,7 @@ export default function SettingsScreen() {
           hint="The app speaks each word for you"
           value={settings.speech}
           onChange={(next) => updateSettings({ speech: next })}
+          icon={<MicIcon size={20} />}
         />
       </Panel>
 
@@ -161,30 +183,71 @@ export default function SettingsScreen() {
           <SparkleIcon size={22} />
           <Text style={type.h2}>Reading pace</Text>
         </View>
-        <Text style={type.small}>How slowly the voice says each word.</Text>
-        <View style={styles.speedRow}>
-          {SPEEDS.map((speed) => (
+        <Text style={type.small}>Two voices to set: the one that reads sentences, and the one that dictates words.</Text>
+
+        <View style={styles.paceGroup}>
+          <View style={styles.paceHead}>
+            <View style={styles.paceBadge}>
+              <SpeakerIcon size={20} />
+            </View>
+            <View style={styles.paceText}>
+              <Text style={type.bodyBold} numberOfLines={1}>
+                Sentence voice
+              </Text>
+              <Text style={type.small}>Hints, rule cards and praise</Text>
+            </View>
             <PillButton
-              key={speed.label}
-              label={speed.label}
+              label="Hear it"
               tone="gem"
-              selected={Math.abs(settings.speechRate - speed.rate) < 0.06}
-              onPress={() => updateSettings({ speechRate: speed.rate })}
+              icon={<SpeakerIcon size={15} color={colors.gemDark} />}
+              onPress={() => speakLine('Listen carefully, then build the word.')}
             />
-          ))}
+          </View>
+          <View style={styles.speedRow}>
+            {SPEEDS.map((speed) => (
+              <PillButton
+                key={speed.label}
+                label={speed.label}
+                tone="gem"
+                selected={Math.abs(settings.speechRate - speed.rate) < 0.06}
+                onPress={() => updateSettings({ speechRate: speed.rate })}
+              />
+            ))}
+          </View>
         </View>
+
         <Divider />
-        <Text style={type.small}>How slowly school words are dictated in My Spelling Test.</Text>
-        <View style={styles.speedRow}>
-          {DICTATION_SPEEDS.map((speed) => (
+
+        <View style={styles.paceGroup}>
+          <View style={styles.paceHead}>
+            <View style={styles.paceBadge}>
+              <MicIcon size={20} />
+            </View>
+            <View style={styles.paceText}>
+              <Text style={type.bodyBold} numberOfLines={1}>
+                Word voice
+              </Text>
+              <Text style={type.small}>Spelling words, dictated slowly</Text>
+            </View>
             <PillButton
-              key={`dictation-${speed.label}`}
-              label={speed.label}
+              label="Hear it"
               tone="grape"
-              selected={Math.abs(settings.dictationRate - speed.rate) < 0.06}
-              onPress={() => updateSettings({ dictationRate: speed.rate })}
+              icon={<MicIcon size={15} color={colors.grapeDark} />}
+              onPress={() => speakWord('MAP')}
             />
-          ))}
+          </View>
+          <Text style={type.small}>Tap Hear it and check the last sound of the word is clear.</Text>
+          <View style={styles.speedRow}>
+            {DICTATION_SPEEDS.map((speed) => (
+              <PillButton
+                key={`dictation-${speed.label}`}
+                label={speed.label}
+                tone="grape"
+                selected={Math.abs(settings.dictationRate - speed.rate) < 0.06}
+                onPress={() => updateSettings({ dictationRate: speed.rate })}
+              />
+            ))}
+          </View>
         </View>
         <Divider />
         <InfoRow label="Works without internet" value="Yes, everything is on the device" />
@@ -307,9 +370,16 @@ export default function SettingsScreen() {
                       accessibilityState={{ selected: active }}
                       style={[styles.voiceRow, active ? styles.voiceRowActive : null]}
                     >
+                      <View style={styles.voiceBadge}>
+                        <MicIcon size={18} color={active ? colors.successDark : colors.inkFaint} />
+                      </View>
                       <View style={styles.voiceText}>
-                        <Text style={type.bodyBold}>{voice.name}</Text>
-                        <Text style={type.small}>{voice.note}</Text>
+                        <Text style={type.bodyBold} numberOfLines={1}>
+                          {voice.name}
+                        </Text>
+                        <Text style={type.small} numberOfLines={1}>
+                          {voice.note}
+                        </Text>
                       </View>
                       {active ? <CheckIcon size={20} color={colors.successDark} /> : null}
                     </Pressable>
@@ -344,9 +414,9 @@ export default function SettingsScreen() {
           <EggIcon size={22} />
           <Text style={type.h2}>About EvoABC</Text>
         </View>
-        <InfoRow label="Version" value="1.0.0" />
+        <InfoRow label="Version" value="1.1.0" />
         <InfoRow label="Levels" value="29 regions, 174 levels" />
-        <InfoRow label="Words" value="293 first grade words" />
+        <InfoRow label="Words" value="288 first grade words" />
         <InfoRow label="Storage" value="Saved on this device only" />
         <Divider />
         <Text style={type.small}>
@@ -394,9 +464,42 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   block: { marginTop: spacing.md, gap: spacing.xs },
   blockTitle: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md, paddingVertical: spacing.sm },
-  toggleText: { flex: 1 },
+  toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md, paddingVertical: spacing.sm, minHeight: 56 },
+  toggleBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.cardAlt,
+    borderWidth: 2,
+    borderColor: colors.cardLine,
+  },
+  toggleText: { flex: 1, flexShrink: 1 },
   speedRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.sm },
+  paceGroup: { marginTop: spacing.md, gap: spacing.xs },
+  paceHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 52 },
+  paceBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.cardAlt,
+    borderWidth: 2,
+    borderColor: colors.cardLine,
+  },
+  paceText: { flex: 1, flexShrink: 1 },
+  voiceBadge: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.card,
+    borderWidth: 2,
+    borderColor: colors.cardLine,
+  },
   parentOpen: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md, flexWrap: 'wrap', marginTop: spacing.sm },
   pillRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
   tagRow: { paddingVertical: spacing.sm, gap: 4 },
@@ -408,8 +511,20 @@ const styles = StyleSheet.create({
   choiceGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', width: '100%', marginTop: spacing.sm, rowGap: spacing.sm },
   choiceCell: { width: '48%' },
   voiceList: { gap: spacing.sm, marginTop: spacing.sm },
-  voiceRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md, borderWidth: 2, borderColor: colors.cardLine, backgroundColor: colors.cardAlt, borderRadius: radii.lg, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  voiceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    borderWidth: 2,
+    borderColor: colors.cardLine,
+    backgroundColor: colors.cardAlt,
+    borderRadius: radii.lg,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    minHeight: 58,
+  },
   voiceRowActive: { borderColor: colors.success, backgroundColor: '#E9FBF1' },
-  voiceText: { flex: 1 },
+  voiceText: { flex: 1, flexShrink: 1 },
   gateError: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.dangerDark, textAlign: 'center', marginTop: spacing.sm },
 });

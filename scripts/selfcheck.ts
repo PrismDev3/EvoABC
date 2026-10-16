@@ -61,7 +61,17 @@ import {
 } from '../src/game/testplan';
 import { chunkWord, detectPattern, patternForWord } from '../src/game/phonics';
 import { CUE_CATALOGS, cueSpec } from '../src/art/cues';
-import { spokenLetters, soundChunks, soundOutText, spokenWord, tidySentence } from '../src/lib/phonemes';
+import {
+  SOUND_ANCHORS,
+  SOUND_NAMES,
+  soundChunks,
+  soundOutSteps,
+  soundOutText,
+  spokenLetterList,
+  spokenLetters,
+  spokenWord,
+  tidySentence,
+} from '../src/lib/phonemes';
 import { LevelProgress } from '../src/types';
 
 let passed = 0;
@@ -115,6 +125,44 @@ check(
 );
 check('every word has a hint', ALL_LEVELS.every((level) => level.words.every((word) => word.hint.length > 3)));
 check('regions cover every word type', new Set(REGIONS.map((region) => region.tag)).size >= 5);
+check(
+  'a level never asks for the same word twice',
+  ALL_LEVELS.every((level) => new Set(level.words.map((word) => word.word)).size === level.words.length),
+);
+check(
+  'the words in a level all come from its own region',
+  REGIONS.every((region) =>
+    region.levels.every((level) => level.words.every((word) => region.words.some((entry) => entry.word === word.word))),
+  ),
+);
+/**
+ * Walking a region level by level is the thing a child actually feels, so this
+ * counts the words the next level shares with the one just played. A pool of
+ * ten words cannot give two levels of five with nothing in common twice over,
+ * so the bar is the tightest one the pool allows.
+ */
+const bounceBacks: string[] = [];
+for (const region of REGIONS) {
+  const allowed = Math.max(0, WORDS_PER_LEVEL * 2 - region.words.length);
+  for (let index = 1; index < region.levels.length; index += 1) {
+    const previous = new Set((region.levels[index - 1]?.words ?? []).map((word) => word.word));
+    const shared = (region.levels[index]?.words ?? []).filter((word) => previous.has(word.word)).map((word) => word.word);
+    if (shared.length > allowed) bounceBacks.push(`${region.id} level ${index + 1}: ${shared.join('+')} of ${region.words.length} words`);
+  }
+}
+check('no word bounces straight back beyond what the pool forces', bounceBacks.length === 0, bounceBacks.slice(0, 4).join(' '));
+const tenWordShare = REGIONS.filter((region) => region.words.length === 10).every((region) =>
+  region.levels.every((level, index) => {
+    if (index === 0) return true;
+    const previous = new Set((region.levels[index - 1]?.words ?? []).map((word) => word.word));
+    return level.words.every((word) => !previous.has(word.word));
+  }),
+);
+check('a ten word region never repeats a word in the next level', tenWordShare);
+const untaught = REGIONS.filter((region) =>
+  region.words.some((word) => region.levels.every((level) => level.words.every((entry) => entry.word !== word.word))),
+);
+check('every word of a region turns up in one of its levels', untaught.length === 0, untaught.slice(0, 4).map((region) => region.id).join(' '));
 
 console.log('\nSessions and hearts');
 const firstLevel = ALL_LEVELS[0];
@@ -126,12 +174,19 @@ check('letters keep the word letters', session.queue.every((question) => [...que
 check('missing letter questions offer four choices', session.queue.every((question) => question.mode !== 'missing' || question.choices.length === 4));
 check('missing letter choices include the answer', session.queue.every((question) => question.mode !== 'missing' || question.choices.includes(question.word.word[question.missingIndex] ?? '!')));
 
+const replayA = createSession(firstLevel, 100).queue.map((question) => question.word.word).join(',');
+const replayB = createSession(firstLevel, 201).queue.map((question) => question.word.word).join(',');
+check('replaying a level asks the words in a fresh order', replayA !== replayB, `${replayA} / ${replayB}`);
+
 let losing = createSession(firstLevel, 7);
+const missedWord = losing.queue[0]?.word.word ?? '';
 losing = answerQuestion(losing, false);
 check('a mistake costs one heart', losing.hearts === 2, String(losing.hearts));
 check('the missed word comes back', losing.queue.length === 6);
-check('the retry is a build question', losing.queue[losing.queue.length - 1]?.mode === 'build');
-check('the retry is marked as an attempt', (losing.queue[losing.queue.length - 1]?.attempt ?? 0) === 1);
+const retry = losing.queue.find((question) => question.word.word === missedWord && question.attempt === 1);
+check('the retry is a build question', retry?.mode === 'build', retry?.mode ?? 'missing');
+check('the retry is marked as an attempt', (retry?.attempt ?? 0) === 1);
+check('the same word is not served again straight away', losing.queue[1]?.attempt === 0 && losing.queue[1]?.word.word !== missedWord, losing.queue[1]?.word.word ?? 'none');
 check('the combo resets on a mistake', losing.combo === 0);
 losing = answerQuestion(advance(losing), false);
 losing = answerQuestion(advance(losing), false);
@@ -362,6 +417,29 @@ check('a spoken line gets one full stop', tidySentence('Hear the word') === 'Hea
 check('a line that already ends is left alone', tidySentence('Well done!') === 'Well done.', tidySentence('Well done!'));
 check('an empty line stays empty', tidySentence('   ') === '');
 check('a plain word sounds out letter by letter', soundOutText('CAT') === 'kuh, ah, tuh', String(soundOutText('CAT')));
+check(
+  'every sound has a real word that proves it',
+  Object.keys(SOUND_NAMES).every((key) => (SOUND_ANCHORS[key] ?? '').length > 1),
+  Object.keys(SOUND_NAMES).filter((key) => (SOUND_ANCHORS[key] ?? '').length <= 1).join(', '),
+);
+check('a spelling is dictated one letter at a time', spokenLetterList('CAT').join(',') === 'see,ay,tee', spokenLetterList('CAT').join(','));
+check('a letter name is clean for the voice', spokenLetterList('c-a t!').join(',') === 'see,ay,tee');
+const napSounds = soundOutSteps('NAP');
+check('sounding out carries the sound and its word', napSounds?.length === 3, String(napSounds?.length ?? 0));
+check('the sound of n comes with a word that starts with it', napSounds?.[0]?.anchor === 'no', napSounds?.[0]?.anchor ?? 'none');
+check('the short a is proved by a word', napSounds?.[1]?.anchor === 'at', napSounds?.[1]?.anchor ?? 'none');
+check(
+  'every sound of every school word has a word to prove it',
+  ALL_LEVELS.flatMap((level) => level.words).every((word) => (soundOutSteps(word.word) ?? []).every((step) => step.anchor.length > 1)),
+  String(
+    ALL_LEVELS.flatMap((level) => level.words)
+      .flatMap((word) => soundOutSteps(word.word) ?? [])
+      .filter((step) => step.anchor.length <= 1)
+      .map((step) => step.chunk)
+      .slice(0, 6)
+      .join(','),
+  ),
+);
 check('a letter team sounds as one', soundOutText('SHIP') === 'shh, ih, puh', String(soundOutText('SHIP')));
 check('ph says f', soundOutText('DOLPHIN') === 'duh, aw, lll, fff, ih, nnn', String(soundOutText('DOLPHIN')));
 check('a silent k is not sounded', soundOutText('KNEE') === 'n, ee', String(soundOutText('KNEE')));

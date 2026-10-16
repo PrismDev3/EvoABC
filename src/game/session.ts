@@ -104,13 +104,17 @@ export function buildQuestion(word: WordEntry, index: number, rand: () => number
 export function createSession(level: Level, seed = Date.now()): SessionState {
   const rand = mulberry32(seed);
   const queue = level.words.map((word, index) => buildQuestion(word, index, rand));
-  const first = queue[0];
+  // The same five words every time a level is replayed would feel like a loop,
+  // so the order is drawn fresh from the seed. The teaching mode each word
+  // gets still comes from its place in the authored list.
+  const ordered = shuffle(queue, rand);
+  const first = ordered[0];
   return {
     levelId: level.id,
     regionId: level.regionId,
     title: level.title,
     mode: first?.mode ?? 'build',
-    queue,
+    queue: ordered,
     index: 0,
     total: level.words.length,
     hearts: MAX_HEARTS,
@@ -152,7 +156,18 @@ export function answerQuestion(session: SessionState, correct: boolean): Session
   }
 
   const hearts = session.hearts - 1;
-  const queue = session.queue.concat([{ ...question, attempt: question.attempt + 1, mode: 'build' as PlayMode }]);
+  // A missed word comes back, but not straight away: it is slid in after the
+  // next two words so the child hears something else first instead of the same
+  // word twice in a row.
+  const retry = { ...question, attempt: question.attempt + 1, mode: 'build' as PlayMode };
+  const rest = session.queue.slice(session.index + 1);
+  const gap = Math.min(rest.length, 2);
+  const queue = [
+    ...session.queue.slice(0, session.index + 1),
+    ...rest.slice(0, gap),
+    retry,
+    ...rest.slice(gap),
+  ];
   return {
     ...session,
     hearts,

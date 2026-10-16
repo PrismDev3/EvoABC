@@ -1,7 +1,7 @@
 import * as Speech from 'expo-speech';
 import { Platform } from 'react-native';
 
-import { cleanWord, soundOutText, spokenLetters, spokenWord, tidySentence } from './phonemes';
+import { soundOutSteps, spokenLetterList, spokenWord, tidySentence } from './phonemes';
 
 /**
  * Text to speech for EvoABC.
@@ -54,7 +54,7 @@ const PREFERRED_NAMES = [
 
 /** App level speeds. 1 is normal grown up speech, lower is slower and kinder. */
 const DEFAULT_LINE_SPEED = 0.82;
-const DEFAULT_WORD_SPEED = 0.72;
+const DEFAULT_WORD_SPEED = 0.76;
 
 let voices: VoiceChoice[] = [];
 let chosenVoiceId: string | null = null;
@@ -68,14 +68,21 @@ function normalRate(): number {
   return Platform.OS === 'ios' ? 0.5 : 1;
 }
 
-/** Converts an app speed into the number this platform understands. */
+/**
+ * Converts an app speed into the number this platform understands.
+ *
+ * iOS does not stay clear at the bottom of its range. Below about 0.42 it
+ * stretches every vowel and swallows the final consonant, which is how "map"
+ * comes back sounding like "may". Lower speeds are therefore squashed up into
+ * the band where the voice stays crisp, while a speed of 1 still means exactly
+ * the pace iOS itself calls normal.
+ */
 function platformRate(speed: number): number {
-  const scaled = speed * normalRate();
-  const minimum = Platform.OS === 'ios' ? 0.1 : 0.3;
-  // iOS keeps climbing well past a comfortable reading pace, so it is capped
-  // below its own maximum no matter what the setting says.
-  const maximum = Platform.OS === 'ios' ? 0.7 : 1.5;
-  return Math.max(minimum, Math.min(maximum, scaled));
+  if (Platform.OS === 'ios') {
+    const clamped = Math.max(0.55, Math.min(1.4, speed));
+    return 0.5 * (0.62 + 0.38 * clamped);
+  }
+  return Math.max(0.7, Math.min(1.3, speed * 1.04));
 }
 
 function scoreVoice(name: string, identifier: string, language: string, quality: string): { score: number; note: string } {
@@ -214,36 +221,59 @@ interface Step {
 
 let queueToken = 0;
 let queueTimer: ReturnType<typeof setTimeout> | null = null;
+let leadTimer: ReturnType<typeof setTimeout> | null = null;
 
-function clearQueueTimer(): void {
+/**
+ * True while the voice engine may still be talking. Cancelling the voice and
+ * starting the next utterance in the same tick is what clips the first syllable
+ * off a word, so a new request waits for the cancellation to land first, and
+ * only pays that wait when something really was playing.
+ */
+let busy = false;
+
+/** A short breath between cancelling the voice and the first sound. */
+const LEAD_IN_MS = 90;
+
+function clearTimers(): void {
   if (queueTimer !== null) {
     clearTimeout(queueTimer);
     queueTimer = null;
+  }
+  if (leadTimer !== null) {
+    clearTimeout(leadTimer);
+    leadTimer = null;
   }
 }
 
 /**
  * A generous guess at how long a step takes, used only as a safety net for the
- * engines that forget to tell us when they have finished.
+ * engines that forget to tell us when they have finished. It must never come
+ * out shorter than the real thing, or the next step would cut this one off.
  */
 function estimateMs(step: Step): number {
   const characters = Math.max(1, step.text.length);
-  return 700 + (characters * 105) / Math.max(0.3, step.speed) + step.pauseAfter;
+  const rate = Math.max(0.25, platformRate(step.speed));
+  return 950 + (characters * 70) / rate + step.pauseAfter;
+}
+
+/** A word spoken on its own is a sentence, so it keeps its last consonant. */
+function asSentence(text: string): string {
+  return /[.!?]$/.test(text) ? text : `${text}.`;
 }
 
 /** Speaks a short sequence, cancelling whatever was playing before it. */
 function speakSteps(steps: Step[], onDone?: () => void): void {
   const token = queueToken + 1;
   queueToken = token;
-  clearQueueTimer();
-  Speech.stop().catch(() => {
-    // nothing was playing
-  });
+  clearTimers();
+  const wasBusy = busy;
+  busy = true;
 
   const play = (index: number) => {
     if (token !== queueToken) return;
     const step = steps[index];
     if (step === undefined || step.text.length === 0 || !speechEnabled) {
+      busy = false;
       onDone?.();
       return;
     }
@@ -251,7 +281,10 @@ function speakSteps(steps: Step[], onDone?: () => void): void {
     const advance = () => {
       if (finished || token !== queueToken) return;
       finished = true;
-      clearQueueTimer();
+      if (queueTimer !== null) {
+        clearTimeout(queueTimer);
+        queueTimer = null;
+      }
       if (step.pauseAfter <= 0) {
         play(index + 1);
         return;
@@ -282,7 +315,22 @@ function speakSteps(steps: Step[], onDone?: () => void): void {
     queueTimer = setTimeout(advance, estimateMs(step));
   };
 
-  play(0);
+  const begin = () => {
+    if (token !== queueToken) return;
+    play(0);
+  };
+
+  if (!wasBusy) {
+    leadTimer = setTimeout(begin, LEAD_IN_MS);
+    return;
+  }
+
+  Speech.stop()
+    .catch(() => undefined)
+    .then(() => {
+      if (token !== queueToken) return;
+      leadTimer = setTimeout(begin, LEAD_IN_MS);
+    });
 }
 
 /** A spoken line, such as a rule explanation or a praise message. */
@@ -296,53 +344,66 @@ export function speakLine(text: string, options: Speech.SpeechOptions = {}): voi
 export function speakWord(word: string, options: Speech.SpeechOptions = {}): void {
   const text = spokenWord(word);
   if (text.length === 0) return;
-  speakSteps([{ text, speed: wordSpeed * (options.rate ?? 1), pitch: options.pitch ?? 1, pauseAfter: 0 }]);
+  speakSteps([{ text: asSentence(text), speed: wordSpeed * (options.rate ?? 1), pitch: options.pitch ?? 1, pauseAfter: 0 }]);
 }
 
 /** The word as slowly as the setting allows, said twice so it can be copied. */
 export function speakWordSlow(word: string): void {
   const text = spokenWord(word);
   if (text.length === 0) return;
-  const speed = wordSpeed * 0.62;
+  const said = asSentence(text);
+  const speed = wordSpeed * 0.7;
   speakSteps([
-    { text, speed, pitch: 1, pauseAfter: 520 },
-    { text, speed, pitch: 1, pauseAfter: 0 },
+    { text: said, speed, pitch: 1, pauseAfter: 560 },
+    { text: said, speed, pitch: 1, pauseAfter: 0 },
   ]);
 }
 
 /**
- * Says the word, then each of its sounds, then the word twice more, which is
- * the order a grown up uses at the kitchen table. Very short or very plain
- * words have nothing to sound out, so they are simply said slowly.
+ * Says the word, then each of its sounds with a word that proves the sound,
+ * then the word twice more, which is the order a grown up uses at the kitchen
+ * table. Very short or very plain words have nothing to sound out, so they are
+ * simply said slowly instead.
  */
 export function soundOut(word: string): void {
   const text = spokenWord(word);
   if (text.length === 0) return;
-  const sounds = soundOutText(word);
-  if (sounds === null) {
+  const steps = soundOutSteps(word);
+  if (steps === null) {
     speakWordSlow(word);
     return;
   }
+  const said = asSentence(text);
   speakSteps([
-    { text, speed: wordSpeed, pitch: 1, pauseAfter: 460 },
-    { text: sounds, speed: wordSpeed * 0.95, pitch: 1, pauseAfter: 420 },
-    { text, speed: wordSpeed, pitch: 1, pauseAfter: 300 },
-    { text, speed: wordSpeed, pitch: 1, pauseAfter: 0 },
+    { text: said, speed: wordSpeed, pitch: 1, pauseAfter: 430 },
+    ...steps.map((step) => ({
+      text: step.anchor.length > 0 ? `${step.sound}, as in ${step.anchor}.` : `${step.sound}.`,
+      speed: wordSpeed * 0.98,
+      pitch: 1,
+      pauseAfter: 230,
+    })),
+    { text: said, speed: wordSpeed * 0.92, pitch: 1, pauseAfter: 360 },
+    { text: said, speed: wordSpeed, pitch: 1, pauseAfter: 0 },
   ]);
+}
+
+/** One step per letter, so each letter name lands on its own. */
+function letterSteps(word: string, pauseAfter: number): Step[] {
+  return spokenLetterList(word).map((name) => ({ text: `${name},`, speed: lineSpeed, pitch: 1, pauseAfter }));
 }
 
 /** Spells the word out loud in letter names, then says it. */
 export function spellOut(word: string, then?: () => void): void {
   const text = spokenWord(word);
-  const letters = spokenLetters(word);
+  const letters = letterSteps(word, 250);
   if (letters.length === 0) {
     onDoneAfterOnly(then);
     return;
   }
   speakSteps(
     [
-      { text: letters, speed: lineSpeed, pitch: 1, pauseAfter: text.length === 0 ? 0 : 480 },
-      ...(text.length === 0 ? [] : [{ text, speed: wordSpeed, pitch: 1, pauseAfter: 0 }]),
+      ...letters,
+      ...(text.length === 0 ? [] : [{ text: asSentence(text), speed: wordSpeed, pitch: 1, pauseAfter: 0 }]),
     ],
     then,
   );
@@ -352,14 +413,17 @@ function onDoneAfterOnly(then?: () => void): void {
   if (then !== undefined) setTimeout(then, 0);
 }
 
-/** Says the word, spells it with letter names, then says it again. */
+/** Says the word, spells it one letter at a time, then says it again. */
 export function teachWord(word: string): void {
   const text = spokenWord(word);
   if (text.length === 0) return;
+  const letters = letterSteps(word, 260);
+  if (letters.length === 0) return;
+  const said = asSentence(text);
   speakSteps([
-    { text, speed: wordSpeed, pitch: 1, pauseAfter: 520 },
-    { text: spokenLetters(word), speed: lineSpeed, pitch: 1, pauseAfter: 520 },
-    { text, speed: wordSpeed, pitch: 1, pauseAfter: 0 },
+    { text: said, speed: wordSpeed, pitch: 1, pauseAfter: 470 },
+    ...letters,
+    { text: said, speed: wordSpeed, pitch: 1, pauseAfter: 0 },
   ]);
 }
 
@@ -368,8 +432,8 @@ export function speakSentence(sentence: string, word?: string): void {
   const clean = tidySentence(sentence);
   const text = word === undefined ? '' : spokenWord(word);
   const steps: Step[] = [];
-  if (clean.length > 0) steps.push({ text: clean, speed: lineSpeed, pitch: 1.05, pauseAfter: text.length > 0 ? 420 : 0 });
-  if (text.length > 0) steps.push({ text, speed: wordSpeed, pitch: 1, pauseAfter: 0 });
+  if (clean.length > 0) steps.push({ text: clean, speed: lineSpeed, pitch: 1.05, pauseAfter: text.length > 0 ? 470 : 0 });
+  if (text.length > 0) steps.push({ text: asSentence(text), speed: wordSpeed, pitch: 1, pauseAfter: 0 });
   if (steps.length === 0) return;
   speakSteps(steps);
 }
@@ -377,7 +441,8 @@ export function speakSentence(sentence: string, word?: string): void {
 /** Stops the voice and empties the queue, used when a screen closes. */
 export function stopSpeech(): void {
   queueToken += 1;
-  clearQueueTimer();
+  busy = false;
+  clearTimers();
   Speech.stop().catch(() => {
     // nothing to stop
   });

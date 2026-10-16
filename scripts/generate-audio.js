@@ -469,38 +469,145 @@ const roar1 = () => creature({ base: NOTE.C5, second: NOTE.E5, wobble: 0.02, wob
 const roar2 = () => creature({ base: NOTE.D5, second: NOTE.A5, wobble: 0.025, wobbleHz: 6.5, duration: 1.0 });
 const roar3 = () => creature({ base: NOTE.G4, second: NOTE.D5, wobble: 0.018, wobbleHz: 5.5, duration: 1.1 });
 
-/** Sixteen second background loop: four soft chords with a music box on top. */
+/**
+ * Background loop at 116 beats per minute: a four chord progression, a five
+ * note hook that comes back on every other bar, a two note bass pulse and a
+ * soft shaker, all built on the same pentatonic scale as the sound effects so
+ * nothing ever clashes. The hook is the whole point. A tune that repeats a
+ * short shape and then answers it is the one that stays in a child's head,
+ * and the last bar lifts an octave so the loop has a small payoff before it
+ * starts again.
+ */
 function music() {
-  const track = createTrack(16);
-  const chords = [
-    [NOTE.C4, NOTE.E4, NOTE.G4],
-    [NOTE.A4 / 2, NOTE.C4, NOTE.E4],
-    [NOTE.G4 / 2, NOTE.C4, NOTE.E4],
-    [NOTE.G4, NOTE.C5, NOTE.D5],
+  const BPM = 116;
+  const BEAT = 60 / BPM;
+  const BAR = BEAT * 4;
+  const BARS = 8;
+  const track = createTrack(BARS * BAR);
+
+  // The pentatonic ladder everything is written on, low to high.
+  const PENT = [
+    NOTE.C4,
+    NOTE.D4,
+    NOTE.E4,
+    NOTE.G4,
+    NOTE.A4,
+    NOTE.C5,
+    NOTE.D5,
+    NOTE.E5,
+    NOTE.G5,
+    NOTE.A5,
+    NOTE.C6,
+    NOTE.D6,
+    NOTE.E6,
+    NOTE.G6,
+    NOTE.A6,
+    NOTE.C7,
   ];
-  // Two melody notes per chord, always on the pentatonic scale.
-  const melody = [
-    [NOTE.E5, NOTE.G5],
-    [NOTE.C6, NOTE.A5],
-    [NOTE.G5, NOTE.E5],
-    [NOTE.D6, NOTE.C6],
+  const step = (index) => PENT[Math.max(0, Math.min(PENT.length - 1, index))];
+
+  // One chord per two bars: C, G, A minor, and a soft F substitute, because F
+  // itself is not in the pentatonic set this app is tuned to. Every figure is
+  // the same rising then resolving shape, written so it lands on chord tones.
+  const chords = [
+    {
+      pad: [NOTE.C4, NOTE.E4, NOTE.G4],
+      root: NOTE.C4 / 2,
+      fifth: NOTE.G4 / 2,
+      statement: [8, 9, 8, 7, 5],
+      answer: [9, 10, 9, 8, 7],
+      lift: [12, 13, 12, 11, 9],
+    },
+    {
+      pad: [NOTE.G4, NOTE.D5, NOTE.G5],
+      root: NOTE.G4 / 2,
+      fifth: NOTE.D5 / 2,
+      statement: [6, 7, 8, 7, 6],
+      answer: [7, 8, 9, 8, 7],
+      lift: [10, 11, 10, 9, 7],
+    },
+    {
+      pad: [NOTE.A4, NOTE.C5, NOTE.E5],
+      root: NOTE.A4 / 2,
+      fifth: NOTE.E5 / 2,
+      statement: [7, 9, 10, 9, 7],
+      answer: [8, 9, 10, 9, 8],
+      lift: [11, 12, 11, 10, 8],
+    },
+    {
+      pad: [NOTE.D4, NOTE.A4, NOTE.C5],
+      root: NOTE.D4 / 2,
+      fifth: NOTE.A4 / 2,
+      statement: [9, 10, 9, 7, 6],
+      answer: [10, 11, 10, 9, 7],
+      lift: [13, 14, 13, 11, 10],
+    },
   ];
 
-  chords.forEach((chord, chordIndex) => {
-    const chordStart = chordIndex * 4;
-    chord.forEach((freq) => {
-      track.pad({ freq, start: chordStart, duration: 3.6, amp: 0.1, attack: 0.7, release: 0.9 });
-    });
-    melody[chordIndex].forEach((freq, noteIndex) => {
-      track.note({
+  // The hook rhythm, in beats, with the last note held across the bar line.
+  const HOOK_RHYTHM = [0, 0.5, 1, 1.75, 2.5];
+  const HOOK_LENGTH = [0.45, 0.45, 0.6, 0.6, 1.2];
+  const progression = [0, 0, 1, 1, 2, 2, 3, 3];
+
+  progression.forEach((chordIndex, bar) => {
+    const chord = chords[chordIndex];
+    const barStart = bar * BAR;
+    const answering = bar % 2 === 1;
+    const finalBar = bar === BARS - 1;
+    const figure = finalBar ? chord.lift : answering ? chord.answer : chord.statement;
+
+    // The chord, held under the whole bar.
+    chord.pad.forEach((freq, voice) => {
+      track.pad({
         freq,
-        start: chordStart + 0.6 + noteIndex * 1.7,
-        duration: 1.3,
-        amp: 0.085,
-        decay: 1.0,
-        brightness: 0.85,
-        attack: 0.02,
+        start: barStart,
+        duration: BAR * 0.96,
+        amp: voice === 0 ? 0.075 : 0.05,
+        attack: answering ? 0.45 : 0.55,
+        release: 0.5,
       });
+    });
+
+    // Two soft bass notes per bar, root then fifth, which is what gives the
+    // loop its pulse without a drum kit.
+    track.pad({ freq: chord.root, start: barStart, duration: BEAT * 1.7, amp: 0.16, attack: 0.05, release: 0.35 });
+    track.pad({ freq: chord.fifth, start: barStart + BEAT * 2, duration: BEAT * 1.7, amp: 0.12, attack: 0.05, release: 0.35 });
+
+    // The hook itself.
+    figure.forEach((note, noteIndex) => {
+      track.note({
+        freq: step(note),
+        start: barStart + HOOK_RHYTHM[noteIndex] * BEAT,
+        duration: HOOK_LENGTH[noteIndex] * BEAT,
+        amp: finalBar ? 0.1 : 0.115,
+        decay: noteIndex === 4 ? 0.5 : 0.22,
+        brightness: finalBar ? 0.72 : 0.85,
+        attack: 0.012,
+      });
+    });
+
+    // A quiet octave echo after every answering phrase, so the hook rings on
+    // in the child's head between the words.
+    if (answering && !finalBar) {
+      const last = figure[figure.length - 1] ?? 7;
+      track.note({
+        freq: step(last + 4),
+        start: barStart + BEAT * 3.25,
+        duration: BEAT * 0.5,
+        amp: 0.05,
+        decay: 0.3,
+        brightness: 0.7,
+        attack: 0.01,
+      });
+    }
+
+    // Percussion: a soft low thump on beats one and three, a light shaker on
+    // every offbeat, both quiet enough to sit under the melody.
+    [0, 2].forEach((beat) => {
+      track.air({ start: barStart + beat * BEAT, duration: 0.085, amp: 0.1, cutoff: 240, attack: 0.002, release: 0.045, round: 2 });
+    });
+    [0.5, 1.5, 2.5, 3.5].forEach((beat) => {
+      track.air({ start: barStart + beat * BEAT, duration: 0.04, amp: 0.045, cutoff: 3200, attack: 0.002, release: 0.018, round: 3 });
     });
   });
 

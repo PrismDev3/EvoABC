@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { useGame } from '../state/GameContext';
 import { useNav, useParams } from '../navigation/Navigator';
@@ -7,7 +7,7 @@ import { getLevel, getRegion } from '../data/levels';
 import { encouragement } from '../game/session';
 import { coinsForCorrect } from '../game/economy';
 import { SessionSummary } from '../types';
-import { colors, gradients, radii, spacing, type } from '../theme';
+import { colors, fonts, gradients, radii, spacing, type } from '../theme';
 import { ScreenScaffold, ScreenHeader } from '../components/ScreenScaffold';
 import { CueIcon } from '../art/CueIcon';
 import { Badge, Panel } from '../components/Cards';
@@ -17,15 +17,22 @@ import { DragSpell } from '../components/DragSpell';
 import { GameModal } from '../components/GameModal';
 import { FloatingReward, PopIn, ScreenShake, SparkleRing } from '../art/Effects';
 import { CheckIcon, CloseIcon, SparkleIcon } from '../art/Icons';
-import { RuleCard } from '../components/RuleCard';
+import { WordLetters } from '../components/RuleCard';
 import { lookupWord } from '../data/words';
 import { Pattern, patternForWord } from '../game/phonics';
+import { haptic } from '../lib/feedback';
+import { playSfx } from '../audio/sfx';
 import { soundOut, speakLine, speakSentence, speakWord, stopSpeech, teachWord } from '../lib/tts';
 
 /**
  * One learning level: five words, three hearts, three spelling modes.
  * The screen only draws; every rule lives in src/game/session.ts and is applied
  * by the game context, which also plays the sounds and the haptics.
+ *
+ * The teaching card that used to sit above every question was half a screen
+ * tall and, worse, printed the word the child was being asked to spell. It is
+ * one line now: the pattern for this word and a tap to open the whole rule. The
+ * letters appear once the answer is in, which is when they teach something.
  */
 
 export default function PlayScreen() {
@@ -33,7 +40,7 @@ export default function PlayScreen() {
   const params = useParams<{ levelId?: string }>();
   const game = useGame();
   const { session, startLevel, answer, nextQuestion, finishLevel, abandonLevel, nextLevel } = game;
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
 
   const levelId = params.levelId ?? nextLevel.id;
   const level = useMemo(() => getLevel(levelId), [levelId]);
@@ -44,6 +51,7 @@ export default function PlayScreen() {
   const [shakeKey, setShakeKey] = useState(0);
   const [burstKey, setBurstKey] = useState(0);
   const [dragging, setDragging] = useState(false);
+  const [tipOpen, setTipOpen] = useState(false);
   const [quitOpen, setQuitOpen] = useState(false);
   const [lostSummary, setLostSummary] = useState<SessionSummary | null>(null);
   const startedRef = useRef<string | null>(null);
@@ -56,6 +64,7 @@ export default function PlayScreen() {
     finishedRef.current = false;
     setFeedback(null);
     setChosenLetter(null);
+    setTipOpen(false);
     startLevel(levelId);
   }, [levelId, startLevel]);
 
@@ -75,6 +84,10 @@ export default function PlayScreen() {
     const usable = width - spacing.lg * 2 - 24;
     return Math.max(36, Math.min(58, Math.floor(usable / longest) - 8));
   }, [width, word?.word.length]);
+
+  // The picture and the board share the screen, so the art gives way on a
+  // short phone instead of pushing the letters off the bottom.
+  const cueSize = useMemo(() => Math.max(84, Math.min(116, Math.round(height * 0.15))), [height]);
 
   // Read the word out loud in the listen mode, and whenever the word changes.
   useEffect(() => {
@@ -156,7 +169,8 @@ export default function PlayScreen() {
           .split('')
           .map((letter, index) => (index === question.missingIndex ? null : letter));
 
-  const progress = session.total === 0 ? 0 : session.index / session.total;
+  // A missed word is requeued, so the queue can grow past its first length.
+  const progress = session.total === 0 ? 0 : Math.min(1, session.index / session.total);
 
   return (
     <ScreenScaffold gradient={gradients.sky} scroll scrollEnabled={!dragging} padded={false} contentStyle={styles.screenPadding}>
@@ -180,31 +194,69 @@ export default function PlayScreen() {
       <ScreenShake trigger={shakeKey} intensity={12}>
         <View style={styles.body}>
           <Panel tone="card" style={styles.wordCard}>
-            <RuleCard
-              title={region.rule.title}
-              text={region.rule.text}
-              examples={region.rule.examples}
-              focusPair={region.rule.focusPair}
-              tint={region.accent}
-              style={styles.ruleCard}
-              onSpeak={() => speakLine(ruleLine)}
-              word={mode === 'listen' ? undefined : word?.word}
-              pattern={mode === 'listen' ? null : pattern}
-            />
+            <Pressable
+              onPress={() => {
+                playSfx('tap');
+                haptic('light');
+                setTipOpen((open) => !open);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={tipOpen ? 'Hide the rule' : 'Show the rule for this word'}
+              style={styles.tipBar}
+              hitSlop={{ top: 6, bottom: 6 }}
+            >
+              <View style={[styles.tipBadge, { backgroundColor: `${region.accent}22` }]}>
+                <SparkleIcon size={18} color={region.accent} />
+              </View>
+              <Text style={[type.bodyBold, styles.tipTitle]} numberOfLines={1}>
+                {region.rule.title}
+              </Text>
+              <Badge label={pattern?.pair ?? region.rule.focusPair} color={region.accent} />
+              <Text style={[styles.tipToggle, { color: region.accent }]}>{tipOpen ? '-' : '+'}</Text>
+            </Pressable>
+
+            {tipOpen ? (
+              <View style={styles.tipBody}>
+                <Text style={[type.body, styles.tipText]}>{region.rule.text}</Text>
+                <View style={styles.tipExamples}>
+                  {region.rule.examples.slice(0, 4).map((example) => (
+                    <View key={example} style={styles.tipChip}>
+                      <Text style={styles.tipChipText}>{example.toUpperCase()}</Text>
+                    </View>
+                  ))}
+                </View>
+                <SpeakerButton onPress={() => speakLine(ruleLine)} label="Hear the rule" tint={region.accent} size={40} />
+              </View>
+            ) : null}
+
             <View style={styles.cardTop}>
-              <PictureCue cue={word?.cue ?? ''} hint={word?.hint ?? ''} fallback={word?.word ?? ''} tint={colors.cardAlt} size={118} />
+              <PictureCue cue={word?.cue ?? ''} hint={word?.hint ?? ''} fallback={word?.word ?? ''} tint={colors.cardAlt} size={cueSize} />
             </View>
+
+            {feedback !== null && word !== null ? (
+              <View style={styles.revealRow}>
+                <WordLetters word={word.word} pattern={pattern} size={30} />
+              </View>
+            ) : null}
+
             {mode === 'listen' ? (
               <View style={styles.listenRow}>
-                <SpeakerButton onPress={() => (word === null ? undefined : speakSentence(word.hint, word.word))} label="Say it again" tint={colors.gem} />
-                <SpeakerButton onPress={() => (word === null ? undefined : soundOut(word.word))} label="Sound it out" tint={colors.amber} />
-                <SpeakerButton onPress={() => (word === null ? undefined : teachWord(word.word))} label="Spell it with me" tint={colors.grape} />
+                <SpeakerButton
+                  stacked
+                  onPress={() => (word === null ? undefined : speakSentence(word.hint, word.word))}
+                  label="Say it again"
+                  tint={colors.gem}
+                  size={48}
+                />
+                <SpeakerButton stacked onPress={() => (word === null ? undefined : soundOut(word.word))} label="Sound it out" tint={colors.amber} size={48} />
+                <SpeakerButton stacked onPress={() => (word === null ? undefined : teachWord(word.word))} label="Spell it with me" tint={colors.grape} size={48} />
               </View>
             ) : (
               <SpeakerButton
                 onPress={() => (word === null ? undefined : word.sentence !== undefined ? speakSentence(word.sentence, word.word) : speakWord(word.word))}
                 label={word?.sentence !== undefined ? 'Hear it in a sentence' : 'Hear the word'}
                 tint={colors.cardAlt}
+                size={46}
               />
             )}
             {word?.sentence !== undefined && mode !== 'listen' ? (
@@ -347,16 +399,27 @@ const styles = StyleSheet.create({
   screenPadding: { paddingHorizontal: spacing.lg },
   regionRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   body: { flex: 1, gap: spacing.md },
-  wordCard: { gap: spacing.md, alignItems: 'center' },
-  ruleCard: { width: '100%', marginBottom: spacing.xs },
+  wordCard: { gap: spacing.sm, alignItems: 'center' },
+  tipBar: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, width: '100%', paddingVertical: spacing.xs },
+  tipBadge: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+  tipTitle: { flex: 1, flexShrink: 1 },
+  tipToggle: { fontFamily: fonts.display, fontSize: 22, width: 20, textAlign: 'center' },
+  tipBody: { width: '100%', gap: spacing.sm, paddingBottom: spacing.xs },
+  tipText: { color: colors.inkSoft },
+  tipExamples: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  tipChip: { backgroundColor: colors.cardAlt, borderWidth: 2, borderColor: colors.cardLine, borderRadius: radii.pill, paddingHorizontal: 10, paddingVertical: 3 },
+  tipChipText: { fontFamily: fonts.bodyBlack, fontSize: 12, color: colors.inkSoft, letterSpacing: 0.6 },
   cardTop: { alignItems: 'center' },
-  listenRow: { flexDirection: 'row', gap: spacing.lg, flexWrap: 'wrap', justifyContent: 'center' },
+  revealRow: { alignItems: 'center', paddingVertical: spacing.xs },
+  listenRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', width: '100%', gap: spacing.sm },
   sentence: { textAlign: 'center', color: colors.ink },
   playArea: { width: '100%' },
   missingBlock: { alignItems: 'center', gap: spacing.md, width: '100%' },
   pickLabel: { textAlign: 'center' },
   choices: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: spacing.sm },
-  feedbackWrap: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
+  // The reward floats up over the picture instead of over the letter board,
+  // where the child's finger is working.
+  feedbackWrap: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'flex-start' },
   footer: { paddingVertical: spacing.md },
   footerCard: { padding: spacing.md },
   footerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
