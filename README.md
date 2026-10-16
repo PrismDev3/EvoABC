@@ -94,8 +94,10 @@ exact list until it is passed.
 Every word is heard through the voice built into the device, which is why the
 spelling sounds like a person rather than a computer. A grown up can pick the
 voice and its dictation speed in **Settings > Parent zone > Spelling voice**,
-and downloading an Enhanced voice in the device settings (Accessibility >
-Spoken Content > Voices) gives the very clearest one.
+which also says plainly whether the voice in use is one of the clear ones or one
+of the muddy voices that come with the phone. Downloading an Enhanced or Premium
+voice in the device settings (Accessibility > Spoken Content > Voices) gives the
+very clearest one, and the app switches to it on its own.
 
 ## Project layout
 
@@ -112,7 +114,8 @@ src/
   data/                     word bank, evolution stages, skins, crates, levels
   data/units/               the ten teaching units, one word bank per unit
   game/                     pure rules: economy, session, testplan, phonics, loot, streak
-  lib/tts.ts                the voice: voice ranking, paces, sound it out, queue
+  lib/tts.ts                the voice: queues utterances, speaks lines and words
+  lib/speechProfile.ts      pure: the pace band and the voice ranking, both checked
   lib/                      storage and touch feedback
   navigation/Navigator.tsx  lightweight animated navigator
   screens/                  onboarding, home, map, play, result, eggs, collection, streak, settings, test, testSession
@@ -240,11 +243,14 @@ so nothing is buzzy, out of tune or clipped. `npm run audio:check` decodes every
 file and fails on clipping, a DC offset, an edge click, a jump between samples or
 a top end that reads as fizz.
 
-**The voice is paced per platform.** iOS treats 0.5 as normal speech while
-Android treats 1.0 as normal, so the app stores one reading speed and converts it
-per platform (`src/lib/tts.ts`). Words can be said slowly, sounded out chunk by
-chunk (`d, aw, l, f, ih, n` then `dolphin`), or spelled with letter names
-(`see, ay and tee`), and a queue makes sure only one voice is ever talking.
+**The voice is paced in one unit the whole app shares.** A speed of 1 means the
+pace the system itself calls normal speech, and every other speed is a fraction
+of it, so the settings screen is honest about what a child will hear
+(`src/lib/speechProfile.ts`). `expo-speech` scales that number again inside its
+iOS layer, which is why the conversion is written down once, next to the check
+that proves it. Words can be said slowly, sounded out chunk by chunk (`d, aw, l,
+f, ih, n` then `dolphin`), or spelled with letter names (`see, ay and tee`), and
+a queue makes sure only one voice is ever talking.
 
 ## Tech notes
 
