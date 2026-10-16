@@ -501,7 +501,7 @@ export default function SettingsScreen() {
           <EggIcon size={22} />
           <Text style={type.h2}>About EvoABC</Text>
         </View>
-        <InfoRow label="Version" value="1.2.0" />
+        <InfoRow label="Version" value="1.2.1" />
         <InfoRow label="Levels" value="29 regions, 174 levels" />
         <InfoRow label="Words" value="288 first grade words" />
         <InfoRow label="Storage" value="Saved on this device only" />

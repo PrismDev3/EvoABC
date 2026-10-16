@@ -22,7 +22,11 @@ import { soundOutSteps, spokenLetterList, spokenWord, tidySentence } from './pho
  *    row never piles three voices on top of each other.
  * 3. Words are taught the way a teacher does it: say the word, sound it out or
  *    spell it with letter names, then say the word again, with a breath between
- *    each step.
+ *    each step. The word itself is always said twice with a gap, because one
+ *    pass at speed is genuinely easy to miss.
+ * 4. The voice tells the rest of the app when it is talking, so the background
+ *    music can drop to a whisper and reward chimes can wait. Words competing
+ *    with music is the other half of why a word is hard to make out.
  */
 
 export interface VoiceChoice {
@@ -222,6 +226,22 @@ interface Step {
 let queueToken = 0;
 let queueTimer: ReturnType<typeof setTimeout> | null = null;
 let leadTimer: ReturnType<typeof setTimeout> | null = null;
+/** Told whether the voice is talking, so the app can get out of its way. */
+let speechActivityListener: ((active: boolean) => void) | null = null;
+
+/** Registered once by the game shell and wired to the music and the effects. */
+export function setSpeechActivityListener(listener: ((active: boolean) => void) | null): void {
+  speechActivityListener = listener;
+}
+
+function reportSpeech(active: boolean): void {
+  try {
+    speechActivityListener?.(active);
+  } catch (error) {
+    // A listener that throws must never stop the voice from finishing.
+    console.warn('EvoABC could not report the speech state.', error);
+  }
+}
 
 /**
  * True while the voice engine may still be talking. Cancelling the voice and
@@ -274,9 +294,11 @@ function speakSteps(steps: Step[], onDone?: () => void): void {
     const step = steps[index];
     if (step === undefined || step.text.length === 0 || !speechEnabled) {
       busy = false;
+      if (token === queueToken) reportSpeech(false);
       onDone?.();
       return;
     }
+    if (index === 0) reportSpeech(true);
     let finished = false;
     const advance = () => {
       if (finished || token !== queueToken) return;
@@ -340,7 +362,7 @@ export function speakLine(text: string, options: Speech.SpeechOptions = {}): voi
   speakSteps([{ text: clean, speed: options.rate ?? lineSpeed, pitch: options.pitch ?? 1.05, pauseAfter: 0 }]);
 }
 
-/** Says a word at the dictation speed. Pass rate to slow it down further. */
+/** Says a word once at the dictation speed. Pass rate to slow it down further. */
 export function speakWord(word: string, options: Speech.SpeechOptions = {}): void {
   const text = spokenWord(word);
   if (text.length === 0) return;
@@ -427,21 +449,43 @@ export function teachWord(word: string): void {
   ]);
 }
 
-/** A hint sentence, then the word it belongs to. */
+/**
+ * A hint sentence, then the word twice. The repeat matters most here, because
+ * this is the mode where the child has to spell a word they have only heard.
+ */
 export function speakSentence(sentence: string, word?: string): void {
   const clean = tidySentence(sentence);
   const text = word === undefined ? '' : spokenWord(word);
+  const said = text.length === 0 ? '' : asSentence(text);
   const steps: Step[] = [];
-  if (clean.length > 0) steps.push({ text: clean, speed: lineSpeed, pitch: 1.05, pauseAfter: text.length > 0 ? 470 : 0 });
-  if (text.length > 0) steps.push({ text: asSentence(text), speed: wordSpeed, pitch: 1, pauseAfter: 0 });
+  if (clean.length > 0) steps.push({ text: clean, speed: lineSpeed, pitch: 1.05, pauseAfter: said.length > 0 ? 640 : 0 });
+  if (said.length > 0) {
+    steps.push({ text: said, speed: wordSpeed, pitch: 1, pauseAfter: 560 });
+    steps.push({ text: said, speed: wordSpeed, pitch: 1, pauseAfter: 0 });
+  }
   if (steps.length === 0) return;
   speakSteps(steps);
+}
+
+/**
+ * The word on its own, said twice with a breath between, which is what a grown
+ * up does at the kitchen table when the first go was not caught.
+ */
+export function dictateWord(word: string): void {
+  const text = spokenWord(word);
+  if (text.length === 0) return;
+  const said = asSentence(text);
+  speakSteps([
+    { text: said, speed: wordSpeed, pitch: 1, pauseAfter: 540 },
+    { text: said, speed: wordSpeed, pitch: 1, pauseAfter: 0 },
+  ]);
 }
 
 /** Stops the voice and empties the queue, used when a screen closes. */
 export function stopSpeech(): void {
   queueToken += 1;
   busy = false;
+  reportSpeech(false);
   clearTimers();
   Speech.stop().catch(() => {
     // nothing to stop

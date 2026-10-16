@@ -51,29 +51,54 @@ const MUSIC = require('../../assets/audio/music.wav');
  * and nothing is loud enough to be startling through headphones.
  */
 const VOLUME: Partial<Record<SfxName, number>> = {
-  tap: 0.5,
-  coin: 0.7,
-  gem: 0.75,
-  correct: 0.85,
-  combo: 0.85,
-  wrong: 0.6,
-  lose: 0.7,
-  whoosh: 0.5,
-  hatch: 0.85,
-  evolve: 0.95,
-  victory: 0.95,
-  daily: 0.9,
-  eggshake: 0.6,
-  roar1: 0.8,
-  roar2: 0.8,
-  roar3: 0.8,
+  // A tap plays five or six times per word, so it sits well under the rest and
+  // is felt more than heard. The generated file is a soft wooden tick, not the
+  // loud beep this used to be.
+  tap: 0.38,
+  coin: 0.62,
+  gem: 0.68,
+  correct: 0.76,
+  combo: 0.76,
+  wrong: 0.55,
+  lose: 0.62,
+  whoosh: 0.45,
+  hatch: 0.78,
+  evolve: 0.84,
+  victory: 0.86,
+  daily: 0.8,
+  eggshake: 0.55,
+  roar1: 0.72,
+  roar2: 0.72,
+  roar3: 0.72,
 };
+
+/**
+ * Sounds that must never talk over the spelling voice. A reward chiming in the
+ * same half second as the word is being dictated is the reason a word can be
+ * impossible to make out, so these wait their turn instead.
+ */
+const DEFERRED: SfxName[] = ['correct', 'coin', 'gem', 'combo', 'hatch', 'evolve', 'victory', 'daily', 'roar1', 'roar2', 'roar3'];
+
+/** How loud the music sits normally, and how far it drops under the voice. */
+const MUSIC_VOLUME = 0.16;
+const MUSIC_DUCKED = 0.035;
 
 const players = new Map<SfxName, AudioPlayer>();
 let musicPlayer: AudioPlayer | null = null;
 let sfxEnabled = true;
 let musicEnabled = true;
 let audioModeReady = false;
+let speechActive = false;
+let heldSound: SfxName | null = null;
+let holdTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * A reward waits for the voice, but never for long. A word being sounded out
+ * can run for four seconds, and a celebration that arrives four seconds after
+ * the child got it right feels like the app ignored them, so after this the
+ * sound plays anyway.
+ */
+const MAX_HOLD_MS = 1500;
 
 /** Sounds must be audible even with the iPhone mute switch on. */
 export async function configureAudio(): Promise<void> {
@@ -115,8 +140,8 @@ export function setMusicEnabled(enabled: boolean): void {
   else stopMusic();
 }
 
-export function playSfx(name: SfxName): void {
-  if (!sfxEnabled) return;
+/** The actual playback, which never defers. */
+function playSfxNow(name: SfxName): void {
   const player = playerFor(name);
   if (player === null) return;
   try {
@@ -124,6 +149,50 @@ export function playSfx(name: SfxName): void {
     player.play();
   } catch (error) {
     console.warn(`EvoABC could not play the ${name} sound.`, error);
+  }
+}
+
+export function playSfx(name: SfxName): void {
+  if (!sfxEnabled) return;
+  if (speechActive && DEFERRED.includes(name)) {
+    // Only the most recent reward is kept: a queue of chimes would arrive as a
+    // pile of noise the moment the voice stops.
+    heldSound = name;
+    if (holdTimer === null) {
+      holdTimer = setTimeout(releaseHeldSound, MAX_HOLD_MS);
+    }
+    return;
+  }
+  playSfxNow(name);
+}
+
+function releaseHeldSound(): void {
+  if (holdTimer !== null) {
+    clearTimeout(holdTimer);
+    holdTimer = null;
+  }
+  const pending = heldSound;
+  heldSound = null;
+  if (pending !== null && sfxEnabled) playSfxNow(pending);
+}
+
+/**
+ * Told by the voice when it starts and stops talking. While it talks the music
+ * drops to a whisper and rewards hold back, because words have to win.
+ */
+export function setSpeechActive(active: boolean): void {
+  speechActive = active;
+  duckMusic(active);
+  if (active) return;
+  releaseHeldSound();
+}
+
+function duckMusic(active: boolean): void {
+  if (musicPlayer === null) return;
+  try {
+    musicPlayer.volume = active ? MUSIC_DUCKED : MUSIC_VOLUME;
+  } catch (error) {
+    console.warn('EvoABC could not duck the music.', error);
   }
 }
 
@@ -140,8 +209,9 @@ export function startMusic(): void {
     if (musicPlayer === null) {
       musicPlayer = createAudioPlayer(MUSIC);
       // Deliberately well under the sound effects: it is a background hum, not
-      // something a child should have to talk over.
-      musicPlayer.volume = 0.16;
+      // something a child should have to talk over. It also drops further
+      // whenever the spelling voice speaks.
+      musicPlayer.volume = speechActive ? MUSIC_DUCKED : MUSIC_VOLUME;
       musicPlayer.loop = true;
     }
     musicPlayer.play();
@@ -159,6 +229,11 @@ export function stopMusic(): void {
 }
 
 export function releaseAudio(): void {
+  if (holdTimer !== null) {
+    clearTimeout(holdTimer);
+    holdTimer = null;
+  }
+  heldSound = null;
   players.forEach((player) => {
     try {
       player.remove();

@@ -22,7 +22,7 @@ import { lookupWord } from '../data/words';
 import { Pattern, patternForWord } from '../game/phonics';
 import { haptic } from '../lib/feedback';
 import { playSfx } from '../audio/sfx';
-import { soundOut, speakLine, speakSentence, speakWord, stopSpeech, teachWord } from '../lib/tts';
+import { dictateWord, soundOut, speakLine, speakSentence, stopSpeech, teachWord } from '../lib/tts';
 
 /**
  * One learning level: five words, three hearts, three spelling modes.
@@ -253,7 +253,7 @@ export default function PlayScreen() {
               </View>
             ) : (
               <SpeakerButton
-                onPress={() => (word === null ? undefined : word.sentence !== undefined ? speakSentence(word.sentence, word.word) : speakWord(word.word))}
+                onPress={() => (word === null ? undefined : word.sentence !== undefined ? speakSentence(word.sentence, word.word) : dictateWord(word.word))}
                 label={word?.sentence !== undefined ? 'Hear it in a sentence' : 'Hear the word'}
                 tint={colors.cardAlt}
                 size={46}

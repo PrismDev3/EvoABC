@@ -19,7 +19,7 @@ import { Confetti, EvolveBurst, FloatingReward, PopIn, ScreenShake, SparkleRing 
 import { CheckIcon, CloseIcon, CoinIcon, GemIcon, SparkleIcon } from '../art/Icons';
 import { Dino } from '../art/Dino';
 import { haptic } from '../lib/feedback';
-import { soundOut, speakWord, stopSpeech, teachWord } from '../lib/tts';
+import { dictateWord, soundOut, stopSpeech, teachWord } from '../lib/tts';
 import { playRoar } from '../audio/sfx';
 import { TestRoundResult } from '../state/GameContext';
 
@@ -83,7 +83,8 @@ export default function TestSessionScreen() {
     if (plan === null || word === null) return undefined;
     if (plan.phase !== 'practice' && plan.phase !== 'test') return undefined;
     const delay = plan.phase === 'test' ? 650 : 520;
-    const speakTimer = setTimeout(() => speakWord(word), delay);
+    // Said twice: a school list is the one place a word has to land first time.
+    const speakTimer = setTimeout(() => dictateWord(word), delay);
     return () => clearTimeout(speakTimer);
   }, [plan?.index, plan?.phase, plan?.round, word]);
 
@@ -264,7 +265,7 @@ export default function TestSessionScreen() {
                   <Text style={styles.hiddenMark}>?</Text>
                 </View>
                 <View style={styles.hiddenActions}>
-                  <SpeakerButton onPress={() => word !== null && speakWord(word)} label="Hear it again" tint={colors.gem} size={46} />
+                  <SpeakerButton onPress={() => word !== null && dictateWord(word)} label="Hear it again" tint={colors.gem} size={46} />
                   <SpeakerButton onPress={soundItOut} label="Sound it out" tint={colors.jungle} size={46} />
                   <SpeakerButton onPress={teachAgain} label="Spell it with me" tint={colors.amber} size={46} />
                 </View>

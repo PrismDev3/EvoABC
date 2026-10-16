@@ -40,6 +40,19 @@ const HARSHNESS_LIMITS = {
 
 const DEFAULT_HARSHNESS_LIMIT = 0.36;
 
+/**
+ * What the button press has to stay. A tap fires five or six times per word, so
+ * the complaint that it was "super loud and like a beep" is written down here as
+ * a measurement: it must stay well under the other sounds in level, it must
+ * stay dark, and it must stay short. A single bright partial at full level is
+ * exactly what this catches.
+ */
+const SOUND_RULES = {
+  tap: { peakDb: -6, rmsDb: -19, harshness: 0.04, maxSeconds: 0.16 },
+};
+
+const toDbEarly = (value) => (value <= 0 ? -140 : 20 * Math.log10(value));
+
 /** Sounds that are played on repeat, whose first and last samples must join. */
 const LOOPING = new Set(['music']);
 
@@ -153,6 +166,13 @@ for (const name of files) {
     if (seam > 0.05) problems.push(`loop seam jumps by ${seam.toFixed(3)}`);
   } else if (Math.abs(result.first) > 0.03 || Math.abs(result.last) > 0.03) {
     problems.push('edge is not silent');
+  }
+  const rules = SOUND_RULES[key];
+  if (rules !== undefined) {
+    if (toDbEarly(result.peak) > rules.peakDb) problems.push(`peak ${toDbEarly(result.peak).toFixed(1)} dB over ${rules.peakDb} dB for a press`);
+    if (toDbEarly(result.rms) > rules.rmsDb) problems.push(`rms ${toDbEarly(result.rms).toFixed(1)} dB over ${rules.rmsDb} dB for a press`);
+    if (result.harshness > rules.harshness) problems.push(`too bright for a press: ${(result.harshness * 100).toFixed(1)} percent`);
+    if (result.duration > rules.maxSeconds) problems.push(`${result.duration.toFixed(2)}s is long for a press`);
   }
   if (problems.length > 0) failures.push(`${name}: ${problems.join(', ')}`);
 

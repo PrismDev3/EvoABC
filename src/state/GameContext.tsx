@@ -28,7 +28,17 @@ import {
   recordTest,
   wordsToReview,
 } from '../game/testplan';
-import { VoiceChoice, configureTts, describeCurrentVoice, loadVoices, speakLine, speakWord, stopSpeech, teachWord } from '../lib/tts';
+import {
+  VoiceChoice,
+  configureTts,
+  describeCurrentVoice,
+  loadVoices,
+  setSpeechActivityListener,
+  speakLine,
+  speakWord,
+  stopSpeech,
+  teachWord,
+} from '../lib/tts';
 import {
   PermissionState,
   askForReminders,
@@ -50,7 +60,7 @@ import { SessionOutcome, advance as advanceSession, answerQuestion, createSessio
 import { rollCrate } from '../game/loot';
 import { dayKey, nextStreak, rewardForCycle } from '../game/streak';
 import { defaultProfile, clearProfile, loadProfile, saveProfile } from '../lib/storage';
-import { configureAudio, playSfx, playRoar, setMusicEnabled, setSfxEnabled, startMusic, preloadSfx } from '../audio/sfx';
+import { configureAudio, playSfx, playRoar, setMusicEnabled, setSfxEnabled, setSpeechActive, startMusic, preloadSfx } from '../audio/sfx';
 import { configureFeedback, haptic } from '../lib/feedback';
 
 export interface TestRoundResult {
@@ -197,6 +207,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       const installed = await loadVoices(loaded.settings.voiceId);
       if (!cancelled) setVoices(installed);
       if (loaded.settings.music && loaded.onboarded) startMusic();
+      // While the spelling voice talks, the music drops and rewards hold back,
+      // which is what makes a dictated word possible to hear over the music.
+      setSpeechActivityListener(setSpeechActive);
       // A reminder that was sitting on the app icon has been seen by now.
       await clearBadge();
       setReady(true);
@@ -207,6 +220,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     });
     return () => {
       cancelled = true;
+      setSpeechActivityListener(null);
     };
   }, []);
 

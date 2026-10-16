@@ -28,8 +28,24 @@ const frames = (seconds) => Math.max(1, Math.round(seconds * SAMPLE_RATE));
  * is seeded so that running `npm run assets` twice produces byte for byte the
  * same files. That is what lets CI rebuild the sounds and prove the committed
  * WAVs really are the output of this script.
+ *
+ * The seed is reset per sound rather than once for the whole run. With one
+ * shared stream, adding a single noise burst to the button press shifted every
+ * later sound's noise as well, so a change to one effect rewrote the monster
+ * growls and the music too. Each file now depends only on its own name and its
+ * own code.
  */
-let seed = 0x9e3779b9;
+const BASE_SEED = 0x9e3779b9;
+
+function seedFor(name) {
+  let hash = BASE_SEED;
+  for (let index = 0; index < name.length; index += 1) {
+    hash = Math.imul(hash ^ name.charCodeAt(index), 16777619) >>> 0;
+  }
+  return hash >>> 0;
+}
+
+let seed = BASE_SEED;
 const random = () => {
   seed = (seed + 0x6d2b79f5) >>> 0;
   let value = seed;
@@ -318,11 +334,24 @@ function writeWav(fileName, samples) {
 
 // ----------------------------------------------------------------- sounds
 
-/** The softest possible acknowledgement that a finger landed. */
+/**
+ * The softest possible acknowledgement that a finger landed.
+ *
+ * This used to be one struck note on G5, normalised close to full level, which
+ * is why a button press sounded like a loud electronic beep: 784 Hz is dead in
+ * the middle of the range the ear is most sensitive to, and a single partial
+ * with no body reads as a test tone rather than a touch. What follows is a
+ * wooden tick instead: a whisper of air for the finger, then two low partials a
+ * fifth apart that die away in a few tens of a millisecond, dark enough that
+ * the low pass removes any trace of a beep. A tap also plays five or six times
+ * per word, so it is deliberately well under everything else in the app.
+ */
 function tap() {
-  const track = createTrack(0.1);
-  track.note({ freq: NOTE.G5, duration: 0.075, amp: 0.5, decay: 0.045, brightness: 0.8, attack: 0.004 });
-  return track.finish({ target: 0.55, cutoff: 6800 });
+  const track = createTrack(0.12);
+  track.air({ duration: 0.012, amp: 0.1, cutoff: 2600, attack: 0.001, release: 0.006, round: 2 });
+  track.note({ freq: NOTE.D4, duration: 0.075, amp: 0.5, decay: 0.028, brightness: 0.34, attack: 0.002 });
+  track.note({ freq: NOTE.G4, duration: 0.05, amp: 0.22, decay: 0.018, brightness: 0.26, attack: 0.002 });
+  return track.finish({ target: 0.42, cutoff: 3600 });
 }
 
 /** Two warm notes climbing, the sound of getting it right. */
@@ -639,6 +668,7 @@ const SOUNDS = [
 fs.mkdirSync(OUT_DIR, { recursive: true });
 
 for (const [name, build] of SOUNDS) {
+  seed = seedFor(name);
   writeWav(name, build());
 }
 
