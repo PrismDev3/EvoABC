@@ -18,6 +18,7 @@
     "src/game/**/*.ts",
     "src/data/**/*.ts",
     "src/art/cues/**/*.ts",
-    "src/lib/phonemes.ts"
+    "src/lib/phonemes.ts",
+    "src/lib/speechProfile.ts"
   ]
 }

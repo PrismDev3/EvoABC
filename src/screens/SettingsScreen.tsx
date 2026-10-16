@@ -27,7 +27,7 @@ import { CADENCES, cadenceFor, clockList } from '../game/reminders';
 import { useGame } from '../state/GameContext';
 import { useNav } from '../navigation/Navigator';
 import { TAG_LABELS, TAG_ORDER } from '../data/words';
-import { englishVoices, getVoiceId, speakLine, speakWord } from '../lib/tts';
+import { activeVoiceReport, englishVoices, getVoiceId, speakLine, speakWord } from '../lib/tts';
 import { lifetimeXp } from '../game/economy';
 import { haptic } from '../lib/feedback';
 import { playSfx } from '../audio/sfx';
@@ -129,6 +129,9 @@ export default function SettingsScreen() {
 
   const installedVoices = useMemo(() => englishVoices(), [voices]);
   const activeVoiceId = settings.voiceId ?? getVoiceId();
+  // Judged from the installed list, so a phone with only the basic voices is
+  // told the truth rather than a comfortable lie.
+  const voiceReport = useMemo(() => activeVoiceReport(), [voices, settings.voiceId]);
 
   const answerGate = (value: number) => {
     if (value === GATE_ANSWER) {
@@ -203,7 +206,10 @@ export default function SettingsScreen() {
           <SparkleIcon size={22} />
           <Text style={type.h2}>Reading pace</Text>
         </View>
-        <Text style={type.small}>Two voices to set: the one that reads sentences, and the one that dictates words.</Text>
+        <Text style={type.small}>
+          Two voices to set: the one that reads sentences, and the one that dictates words. Normal is the pace the phone itself calls
+          normal, and Slow is about three fifths of it.
+        </Text>
 
         <View style={styles.paceGroup}>
           <View style={styles.paceHead}>
@@ -247,7 +253,7 @@ export default function SettingsScreen() {
               <Text style={type.bodyBold} numberOfLines={1}>
                 Word voice
               </Text>
-              <Text style={type.small}>Spelling words, dictated slowly</Text>
+              <Text style={type.small}>Spelling words, said twice and a little slower than a sentence</Text>
             </View>
             <PillButton
               label="Hear it"
@@ -440,6 +446,16 @@ export default function SettingsScreen() {
               EvoABC uses the good voices already built into this device instead of a tinny computer voice. Now using:{' '}
               {voiceLabel}.
             </Text>
+            <View style={voiceReport.clear ? styles.voiceNoteGood : styles.voiceNoteWarn}>
+              <Text style={type.small}>
+                {voiceReport.clear
+                  ? `Clear voice: ${voiceReport.name}. Letter names and word endings land properly on this one.`
+                  : `Flat voice: ${voiceReport.name} is one of the basic voices that come with the phone, and it is the reason a word can sound muddy. ${voiceReport.steps}`}
+              </Text>
+            </View>
+            {voiceReport.clear ? null : (
+              <ChunkyButton label="Open device settings" tone="bone" size="md" onPress={openReminderSettings} />
+            )}
             <View style={styles.voiceList}>
               {installedVoices.length === 0 ? (
                 <Text style={type.small}>
@@ -478,8 +494,7 @@ export default function SettingsScreen() {
             <ChunkyButton label="Use the best available voice" tone="bone" size="md" onPress={() => chooseVoice(null)} />
             <Divider />
             <Text style={type.small}>
-              For the clearest spelling voice a grown up can download an Enhanced or Premium voice in the device settings, under
-              Accessibility, then Spoken Content, then Voices. The app picks the best one it can find automatically.
+              A downloaded Enhanced or Premium voice is picked automatically, and the list above is ordered best first.
             </Text>
           </Panel>
 
@@ -501,7 +516,7 @@ export default function SettingsScreen() {
           <EggIcon size={22} />
           <Text style={type.h2}>About EvoABC</Text>
         </View>
-        <InfoRow label="Version" value="1.2.1" />
+        <InfoRow label="Version" value="1.2.2" />
         <InfoRow label="Levels" value="29 regions, 174 levels" />
         <InfoRow label="Words" value="288 first grade words" />
         <InfoRow label="Storage" value="Saved on this device only" />
@@ -613,6 +628,24 @@ const styles = StyleSheet.create({
     minHeight: 58,
   },
   voiceRowActive: { borderColor: colors.success, backgroundColor: '#E9FBF1' },
+  voiceNoteGood: {
+    backgroundColor: '#E9FBF1',
+    borderColor: colors.success,
+    borderWidth: 2,
+    borderRadius: radii.lg,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  voiceNoteWarn: {
+    backgroundColor: '#FFF6E6',
+    borderColor: colors.amber,
+    borderWidth: 2,
+    borderRadius: radii.lg,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    marginTop: spacing.sm,
+  },
   voiceText: { flex: 1, flexShrink: 1 },
   gateError: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.dangerDark, textAlign: 'center', marginTop: spacing.sm },
 });

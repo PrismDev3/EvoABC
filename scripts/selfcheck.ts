@@ -82,6 +82,16 @@ import {
   spokenWord,
   tidySentence,
 } from '../src/lib/phonemes';
+import {
+  CLEARER_VOICE_STEPS,
+  SPEECH_FASTEST,
+  SPEECH_SLOWEST,
+  classifyVoice,
+  rankVoice,
+  speechPacePercent,
+  speechRateFor,
+  voiceIsClear,
+} from '../src/lib/speechProfile';
 import { LevelProgress } from '../src/types';
 
 let passed = 0;
@@ -531,6 +541,49 @@ check(
     const spelled = soundChunks(word).join('');
     return spelled !== word && spelled !== word.slice(0, -1);
   }) ?? '',
+);
+
+console.log('\nThe pace and the voice a word is read in');
+// These numbers are not taste. expo-speech multiplies a JavaScript rate by
+// AVSpeechUtteranceDefaultSpeechRate (0.5) in its iOS layer, so a rate of 1 is
+// the pace iOS itself calls normal. An earlier version scaled the rate again in
+// JavaScript and halved every word the app ever said.
+check('a speed of one is exactly normal speech', speechRateFor(1) === 1, String(speechRateFor(1)));
+check('the dictation speed is not halved on the way out', Math.abs(speechRateFor(0.72) - 0.72) < 1e-9, String(speechRateFor(0.72)));
+check('every pace in the app passes through untouched', [0.6, 0.72, 0.82, 0.9, 1].every((speed) => speechRateFor(speed) === speed));
+check('a word is never read below the clarity floor', speechRateFor(0.2) === SPEECH_SLOWEST, String(speechRateFor(0.2)));
+check('nothing is spoken faster than the ceiling', speechRateFor(3) === SPEECH_FASTEST, String(speechRateFor(3)));
+check('the very slow pass is held at the floor', speechRateFor(0.72 * 0.7) === SPEECH_SLOWEST, String(speechRateFor(0.72 * 0.7)));
+check('a nonsense speed falls back to normal', speechRateFor(Number.NaN) === 1, String(speechRateFor(Number.NaN)));
+check('a pace reads as a percentage for the settings screen', speechPacePercent(0.72) === 72, String(speechPacePercent(0.72)));
+
+const voiceFacts = (name: string, identifier: string, language: string, quality = 'Default'): { name: string; identifier: string; language: string; quality: string } => ({
+  name,
+  identifier,
+  language,
+  quality,
+});
+const compactSamantha = rankVoice(voiceFacts('Samantha', 'com.apple.voice.compact.en-US.Samantha', 'en-US'));
+const enhancedSamantha = rankVoice(voiceFacts('Samantha', 'com.apple.voice.enhanced.en-US.Samantha', 'en-US', 'Enhanced'));
+const premiumAva = rankVoice(voiceFacts('Ava', 'com.apple.voice.premium.en-US.Ava', 'en-US'));
+const noveltyVoice = rankVoice(voiceFacts('Bells', 'com.apple.speech.synthesis.voice.Bells', 'en-US'));
+const frenchVoice = rankVoice(voiceFacts('Amelie', 'com.apple.voice.compact.fr-FR.Amelie', 'fr-FR'));
+const androidVoice = rankVoice(voiceFacts('English (United States)', 'en-us-x-sfg#female_1-local', 'en-US'));
+check('the voice that comes with the phone is flagged as the muddy one', compactSamantha.kind === 'compact', compactSamantha.kind);
+check('an enhanced voice beats the compact voice of the same name', enhancedSamantha.score > compactSamantha.score, `${enhancedSamantha.score} vs ${compactSamantha.score}`);
+check(
+  'a premium voice is spotted even though expo-speech reports it as Default',
+  classifyVoice(premiumAva) === 'premium',
+  premiumAva.kind,
+);
+check('a downloaded voice is judged clear', voiceIsClear(enhancedSamantha.kind) && voiceIsClear(premiumAva.kind));
+check('the basic voice is judged unclear', voiceIsClear(compactSamantha.kind) === false);
+check('a joke voice can never outrank a real one', noveltyVoice.score < compactSamantha.score, `${noveltyVoice.score} vs ${compactSamantha.score}`);
+check('a voice that does not speak English loses to one that does', frenchVoice.score < compactSamantha.score);
+check('an Android voice reads clearly', androidVoice.kind === 'standard' && voiceIsClear(androidVoice.kind));
+check(
+  'the clearer voice hint names where to tap',
+  CLEARER_VOICE_STEPS.includes('Accessibility') && CLEARER_VOICE_STEPS.includes('Voices'),
 );
 
 console.log('\nCurriculum integrity');

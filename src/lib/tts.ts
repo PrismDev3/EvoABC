@@ -1,7 +1,7 @@
 import * as Speech from 'expo-speech';
-import { Platform } from 'react-native';
 
 import { soundOutSteps, spokenLetterList, spokenWord, tidySentence } from './phonemes';
+import { CLEARER_VOICE_STEPS, VoiceKind, VoiceRank, classifyVoice, voiceIsClear, rankVoice, speechRateFor } from './speechProfile';
 
 /**
  * Text to speech for EvoABC.
@@ -13,10 +13,11 @@ import { soundOutSteps, spokenLetterList, spokenWord, tidySentence } from './pho
  *
  * Three rules make the voice usable for a six year old:
  *
- * 1. Speeds are normalised in one place. iOS calls 0.5 normal speech and 1.0
- *    very fast, while Android calls 1.0 normal, so an app speed of 1 means
- *    normal here and is converted per platform. Passing an iOS rate straight
- *    through is what made words rattle past far too quickly to follow.
+ * 1. Speeds are normalised in one place. An app speed of 1 means the pace the
+ *    system itself calls normal, and every other speed is a fraction of it.
+ *    The conversion lives in src/lib/speechProfile.ts, because expo-speech
+ *    scales the number again inside the native layer and getting that wrong
+ *    once halved every word the app ever said.
  * 2. Only one thing is ever spoken at a time. A new request cancels whatever
  *    is playing and runs its own short sequence, so tapping three buttons in a
  *    row never piles three voices on top of each other.
@@ -29,32 +30,9 @@ import { soundOutSteps, spokenLetterList, spokenWord, tidySentence } from './pho
  *    with music is the other half of why a word is hard to make out.
  */
 
-export interface VoiceChoice {
+export interface VoiceChoice extends VoiceRank {
   id: string;
-  name: string;
-  language: string;
-  quality: string;
-  /** Higher is better. */
-  score: number;
-  note: string;
 }
-
-const PREFERRED_NAMES = [
-  'Samantha',
-  'Ava',
-  'Allison',
-  'Susan',
-  'Nicky',
-  'Zoe',
-  'Evan',
-  'Nathan',
-  'Serena',
-  'Daniel',
-  'Karen',
-  'Moira',
-  'Tessa',
-  'Siri',
-];
 
 /** App level speeds. 1 is normal grown up speech, lower is slower and kinder. */
 const DEFAULT_LINE_SPEED = 0.82;
@@ -67,78 +45,6 @@ let lineSpeed = DEFAULT_LINE_SPEED;
 let wordSpeed = DEFAULT_WORD_SPEED;
 let loaded = false;
 
-/** The rate the platform calls normal speech. */
-function normalRate(): number {
-  return Platform.OS === 'ios' ? 0.5 : 1;
-}
-
-/**
- * Converts an app speed into the number this platform understands.
- *
- * iOS does not stay clear at the bottom of its range. Below about 0.42 it
- * stretches every vowel and swallows the final consonant, which is how "map"
- * comes back sounding like "may". Lower speeds are therefore squashed up into
- * the band where the voice stays crisp, while a speed of 1 still means exactly
- * the pace iOS itself calls normal.
- */
-function platformRate(speed: number): number {
-  if (Platform.OS === 'ios') {
-    const clamped = Math.max(0.55, Math.min(1.4, speed));
-    return 0.5 * (0.62 + 0.38 * clamped);
-  }
-  return Math.max(0.7, Math.min(1.3, speed * 1.04));
-}
-
-function scoreVoice(name: string, identifier: string, language: string, quality: string): { score: number; note: string } {
-  const lower = `${name} ${identifier}`.toLowerCase();
-  const qualityLower = quality.toLowerCase();
-  let score = 0;
-  const notes: string[] = [];
-
-  if (language.toLowerCase().startsWith('en-us')) {
-    score += 6;
-    notes.push('US English');
-  } else if (language.toLowerCase().startsWith('en')) {
-    score += 4;
-    notes.push('English');
-  } else {
-    score -= 6;
-  }
-
-  if (qualityLower.includes('premium')) {
-    score += 8;
-    notes.push('premium voice');
-  } else if (qualityLower.includes('enhanced')) {
-    score += 6;
-    notes.push('enhanced voice');
-  }
-
-  if (lower.includes('premium')) {
-    score += 5;
-    notes.push('premium');
-  } else if (lower.includes('enhanced')) {
-    score += 4;
-    notes.push('enhanced');
-  }
-
-  if (PREFERRED_NAMES.some((preferred) => name.toLowerCase().startsWith(preferred.toLowerCase()))) score += 3;
-
-  // Compact and older bundled voices are exactly the robotic ones to avoid.
-  if (lower.includes('compact')) {
-    score -= 5;
-    notes.push('compact');
-  }
-  if (lower.includes('ttsbundle') || lower.includes('eloquence') || lower.includes('espeak')) {
-    score -= 4;
-    notes.push('basic engine');
-  }
-  if (lower.includes('novelty') || lower.includes('bad news') || lower.includes('bells')) {
-    score -= 12;
-    notes.push('novelty');
-  }
-
-  return { score, note: notes.length > 0 ? notes.join(', ') : 'system voice' };
-}
 
 /** Reads the installed voices once and returns them best first. */
 export async function loadVoices(preferredId: string | null = null): Promise<VoiceChoice[]> {
@@ -146,15 +52,13 @@ export async function loadVoices(preferredId: string | null = null): Promise<Voi
     const available = await Speech.getAvailableVoicesAsync();
     voices = available
       .map((voice) => {
-        const { score, note } = scoreVoice(voice.name, voice.identifier, voice.language, String(voice.quality ?? ''));
-        return {
-          id: voice.identifier,
+        const rank = rankVoice({
           name: voice.name,
+          identifier: voice.identifier,
           language: voice.language,
           quality: String(voice.quality ?? 'default'),
-          score,
-          note,
-        };
+        });
+        return { ...rank, id: voice.identifier };
       })
       .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
   } catch (error) {
@@ -203,6 +107,41 @@ export function describeCurrentVoice(): string {
   const match = voices.find((voice) => voice.id === id);
   if (match === undefined) return 'System default voice';
   return `${match.name} (${match.note})`;
+}
+
+/** What the parent zone needs to tell the truth about the voice in use. */
+export interface VoiceReport {
+  /** The voice name shown to a grown up. */
+  name: string;
+  kind: VoiceKind;
+  /** False for the muddy compact voices, which is what the hint is for. */
+  clear: boolean;
+  /** False when the device listed no usable voices at all. */
+  known: boolean;
+  /** The steps to a clearer voice, ready to show beside an unclear one. */
+  steps: string;
+}
+
+/**
+ * The voice that will actually read the words, judged honestly.
+ *
+ * When no voice has been chosen the app hands the job to the system default,
+ * which is the same compact voice the device lists as its best English one on
+ * a phone where nothing was ever downloaded. That is the case worth telling a
+ * grown up about, so the report falls back to the best English voice it can see
+ * rather than claiming everything is fine.
+ */
+export function activeVoiceReport(): VoiceReport {
+  const id = getVoiceId();
+  const chosen = id === null ? undefined : voices.find((voice) => voice.id === id);
+  const english = englishVoices();
+  const fallback = english.find((voice) => voice.score > 0) ?? english[0];
+  const voice = chosen ?? fallback;
+  if (voice === undefined) {
+    return { name: 'the device voice', kind: 'standard', clear: true, known: false, steps: CLEARER_VOICE_STEPS };
+  }
+  const kind = classifyVoice(voice);
+  return { name: voice.name, kind, clear: voiceIsClear(kind), known: true, steps: CLEARER_VOICE_STEPS };
 }
 
 export function configureTts(options: { enabled: boolean; speechRate: number; dictationRate: number; voiceId: string | null }): void {
@@ -272,7 +211,7 @@ function clearTimers(): void {
  */
 function estimateMs(step: Step): number {
   const characters = Math.max(1, step.text.length);
-  const rate = Math.max(0.25, platformRate(step.speed));
+  const rate = Math.max(0.25, speechRateFor(step.speed));
   return 950 + (characters * 70) / rate + step.pauseAfter;
 }
 
@@ -319,7 +258,7 @@ function speakSteps(steps: Step[], onDone?: () => void): void {
     const voiceId = getVoiceId();
     try {
       Speech.speak(step.text, {
-        rate: platformRate(step.speed),
+        rate: speechRateFor(step.speed),
         pitch: step.pitch,
         language: 'en-US',
         useApplicationAudioSession: true,
@@ -469,15 +408,18 @@ export function speakSentence(sentence: string, word?: string): void {
 
 /**
  * The word on its own, said twice with a breath between, which is what a grown
- * up does at the kitchen table when the first go was not caught.
+ * up does at the kitchen table when the first go was not caught. The second
+ * pass is a touch slower than the first, because that is the one a child
+ * copies, and the gap between them is long enough to say the first one back in
+ * their head before the second arrives.
  */
 export function dictateWord(word: string): void {
   const text = spokenWord(word);
   if (text.length === 0) return;
   const said = asSentence(text);
   speakSteps([
-    { text: said, speed: wordSpeed, pitch: 1, pauseAfter: 540 },
-    { text: said, speed: wordSpeed, pitch: 1, pauseAfter: 0 },
+    { text: said, speed: wordSpeed, pitch: 1, pauseAfter: 720 },
+    { text: said, speed: wordSpeed * 0.92, pitch: 1, pauseAfter: 0 },
   ]);
 }
 
