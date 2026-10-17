@@ -243,6 +243,14 @@ so nothing is buzzy, out of tune or clipped. `npm run audio:check` decodes every
 file and fails on clipping, a DC offset, an edge click, a jump between samples or
 a top end that reads as fizz.
 
+`audio:check` also prints a **ring** figure: how long a sound stays within 20 dB
+of its own peak. That single number is what separates a tap from a beep, and the
+button press is held to it, along with its own level band. The band was not
+invented: a commercial UI sound pack was measured through the same script, and
+its press peaks at -7.9 dB, carries an RMS of -31 dB, and is over in about 20 ms.
+There are three near identical presses and the app picks one at random for each
+tap, so a row of six letter tiles does not sound like a machine gun.
+
 **The voice is paced in one unit the whole app shares.** A speed of 1 means the
 pace the system itself calls normal speech, and every other speed is a fraction
 of it, so the settings screen is honest about what a child will hear
@@ -262,5 +270,9 @@ a queue makes sure only one voice is ever talking.
 - `@expo/vector-icons` supplies the two icon packs behind every picture cue.
 - `react-native-svg` draws every dinosaur from data: a body plan plus a palette
   plus trait flags. Adding a new dinosaur is one entry in `src/data/dinosaurs.ts`.
+- Icons are drawn from numbers rather than traced by hand where the shape allows
+  it. The settings cog generates eight teeth on a real circle and cuts its centre
+  out with the even odd fill rule, so it has a genuine hole on any background
+  instead of a white disc that only looked like one on white.
 - The layout is portrait, capped at 640 points wide and centred, so an iPad shows
   a comfortable column instead of stretched phone UI.
