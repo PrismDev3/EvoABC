@@ -335,23 +335,55 @@ function writeWav(fileName, samples) {
 // ----------------------------------------------------------------- sounds
 
 /**
- * The softest possible acknowledgement that a finger landed.
+ * The button press, aimed at a measured reference rather than at a taste.
  *
- * This used to be one struck note on G5, normalised close to full level, which
- * is why a button press sounded like a loud electronic beep: 784 Hz is dead in
- * the middle of the range the ear is most sensitive to, and a single partial
- * with no body reads as a test tone rather than a touch. What follows is a
- * wooden tick instead: a whisper of air for the finger, then two low partials a
- * fifth apart that die away in a few tens of a millisecond, dark enough that
- * the low pass removes any trace of a beep. A tap also plays five or six times
- * per word, so it is deliberately well under everything else in the app.
+ * A commercial UI pack that shipped with a volleyball game was measured with
+ * the same metrics as this project (see the table in scripts/check-audio.js).
+ * Its button press is 250 ms long, peaks at -7.9 dB, and has an RMS of -31 dB,
+ * with all of its energy inside the first 70 ms and a soft 64 ms attack. Two of
+ * those numbers are the trick: it is quiet, and it is sparse. A press that is
+ * quiet but dense still reads as a beep, which is why levelling alone never
+ * fixed this one.
+ *
+ * What it was before: one struck note at 784 Hz, later two notes a fifth apart,
+ * both normalised close to full level with a 2 ms attack. Dense, immediate, and
+ * sitting where the ear is most sensitive, so a fingertip came out as a beep.
+ * What follows is a wooden tok: a dark knock of noise for the finger, one low
+ * mallet note that is nearly all its own fundamental, and a whisper of the
+ * octave. It is quiet on purpose and it rings for 80 ms, not 200.
+ */
+function press(detune) {
+  const track = createTrack(0.13);
+  // The fingertip. A whisper of noise up where a phone speaker actually works,
+  // which is what gives the touch its crispness without any audible fizz.
+  track.air({ duration: 0.009, amp: 0.05, cutoff: 3200, attack: 0.001, release: 0.006, round: 2 });
+  // The wood. Damped in 10 ms, so the whole thing is over before the ear can
+  // resolve it as a pitch: a tap, not a note.
+  track.note({ freq: NOTE.D5 * (1 + detune), duration: 0.03, amp: 0.5, decay: 0.01, brightness: 0.3, attack: 0.006 });
+  // A quiet octave for crispness, and a quiet fifth below for body: the two of
+  // them together read as a knuckle on a wooden desk.
+  track.note({ freq: NOTE.D5 * 2 * (1 + detune), duration: 0.018, amp: 0.09, decay: 0.006, brightness: 0.22, attack: 0.004 });
+  track.note({ freq: (NOTE.G4 * 1) * (1 + detune), duration: 0.045, amp: 0.1, decay: 0.011, brightness: 0.2, attack: 0.004 });
+  return track.finish({ target: 0.32, cutoff: 4200 });
+}
+
+/**
+ * Three near identical presses. A row of letter tiles is tapped six times in a
+ * couple of seconds, and one sound repeated that fast is what makes a game feel
+ * cheap, so the pitch wanders by about a twelfth of an octave between them.
+ * The variations are far too small to notice one at a time and stop the run
+ * from sounding like a machine gun.
  */
 function tap() {
-  const track = createTrack(0.12);
-  track.air({ duration: 0.012, amp: 0.1, cutoff: 2600, attack: 0.001, release: 0.006, round: 2 });
-  track.note({ freq: NOTE.D4, duration: 0.075, amp: 0.5, decay: 0.028, brightness: 0.34, attack: 0.002 });
-  track.note({ freq: NOTE.G4, duration: 0.05, amp: 0.22, decay: 0.018, brightness: 0.26, attack: 0.002 });
-  return track.finish({ target: 0.42, cutoff: 3600 });
+  return press(0);
+}
+
+function tap2() {
+  return press(-0.012);
+}
+
+function tap3() {
+  return press(0.014);
 }
 
 /** Two warm notes climbing, the sound of getting it right. */
@@ -647,6 +679,8 @@ function music() {
 
 const SOUNDS = [
   ['tap.wav', tap],
+  ['tap2.wav', tap2],
+  ['tap3.wav', tap3],
   ['correct.wav', correct],
   ['coin.wav', coin],
   ['gem.wav', gem],

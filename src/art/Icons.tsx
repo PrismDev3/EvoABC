@@ -183,13 +183,49 @@ export const PawIcon = ({ size = 22, color = '#7B5CFF' }: IconProps) => (
   </Svg>
 );
 
+/**
+ * A cog, drawn from its measurements rather than traced by hand.
+ *
+ * The old one was a hand written outline: the teeth came out slightly different
+ * sizes, the body was not round, and the middle of it was a white disc. A white
+ * disc is only a hole on a white background, so on a coloured badge it read as a
+ * blob with a sticker on it. This one is generated instead: eight teeth of
+ * exactly equal size on a real circle, and a genuine see through hole cut with
+ * the even odd fill rule, so it sits correctly on any colour underneath.
+ */
+function gearPath({ teeth = 8, outer = 10.1, root = 7.9, hole = 3.4, centre = 12 } = {}): string {
+  const step = (Math.PI * 2) / teeth;
+  // Half of a tooth tip, and the sliver of root between one tooth and the next.
+  const tip = step * 0.28;
+  const gap = step * 0.22;
+  // Angles start at the top and run clockwise, which is the direction the arc
+  // sweep flags below assume.
+  const at = (angle: number, radius: number): string => {
+    const x = centre + radius * Math.cos(angle - Math.PI / 2);
+    const y = centre + radius * Math.sin(angle - Math.PI / 2);
+    return `${x.toFixed(2)} ${y.toFixed(2)}`;
+  };
+  const along = (radius: number, from: number, to: number): string => `A ${radius} ${radius} 0 0 1 ${at(to, radius)}`;
+
+  let d = `M ${at(-tip, outer)}`;
+  for (let index = 0; index < teeth; index += 1) {
+    const middle = index * step;
+    d += ` ${along(outer, middle - tip, middle + tip)}`;
+    d += ` L ${at(middle + tip + gap, root)}`;
+    d += ` ${along(root, middle + tip + gap, middle + step - tip - gap)}`;
+    // The closing line of the last tooth back to the first is the path's own Z.
+    if (index < teeth - 1) d += ` L ${at((index + 1) * step - tip, outer)}`;
+  }
+  d += ' Z';
+  // The hole, as a second subpath: even odd makes it an opening rather than
+  // another filled shape.
+  d += ` M ${at(0, hole)} A ${hole} ${hole} 0 1 1 ${at(Math.PI, hole)} A ${hole} ${hole} 0 1 1 ${at(Math.PI * 2, hole)} Z`;
+  return d;
+}
+
 export const GearsIcon = ({ size = 24, color = '#4A5C77' }: IconProps) => (
   <Svg width={size} height={size} viewBox="0 0 24 24">
-    <Path
-      d="M12 2.6l1 2.3a7.6 7.6 0 012 .8l2.4-.8 1.5 2.6-1.7 1.9c.2.6.3 1.3.3 2s-.1 1.4-.3 2l1.7 1.9-1.5 2.6-2.4-.8a7.6 7.6 0 01-2 .8l-1 2.3h-3l-1-2.3a7.6 7.6 0 01-2-.8l-2.4.8-1.5-2.6 1.7-1.9a8.3 8.3 0 010-4l-1.7-1.9 1.5-2.6 2.4.8c.6-.4 1.3-.6 2-.8l1-2.3z"
-      fill={color}
-    />
-    <Circle cx={12} cy={11.4} r={3} fill="#FFFFFF" />
+    <Path d={gearPath()} fill={color} fillRule="evenodd" />
   </Svg>
 );
 

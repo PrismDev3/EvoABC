@@ -8,6 +8,8 @@ import { AudioPlayer, createAudioPlayer, setAudioModeAsync } from 'expo-audio';
 
 export type SfxName =
   | 'tap'
+  | 'tap2'
+  | 'tap3'
   | 'correct'
   | 'coin'
   | 'gem'
@@ -26,6 +28,8 @@ export type SfxName =
 
 const SOURCES: Record<SfxName, number> = {
   tap: require('../../assets/audio/tap.wav'),
+  tap2: require('../../assets/audio/tap2.wav'),
+  tap3: require('../../assets/audio/tap3.wav'),
   correct: require('../../assets/audio/correct.wav'),
   coin: require('../../assets/audio/coin.wav'),
   gem: require('../../assets/audio/gem.wav'),
@@ -52,9 +56,12 @@ const MUSIC = require('../../assets/audio/music.wav');
  */
 const VOLUME: Partial<Record<SfxName, number>> = {
   // A tap plays five or six times per word, so it sits well under the rest and
-  // is felt more than heard. The generated file is a soft wooden tick, not the
-  // loud beep this used to be.
-  tap: 0.38,
+  // is felt more than heard. The generated file is quiet and very short now, so
+  // it is played a little louder here and still lands softer than the beep it
+  // replaced: same peak, four decibels less energy behind it.
+  tap: 0.55,
+  tap2: 0.55,
+  tap3: 0.55,
   coin: 0.62,
   gem: 0.68,
   correct: 0.76,
@@ -126,7 +133,7 @@ function playerFor(name: SfxName): AudioPlayer | null {
 }
 
 /** Warm the cache so the first stomp has no delay behind it. */
-export function preloadSfx(names: SfxName[] = ['tap', 'correct', 'coin', 'wrong', 'whoosh', 'combo']): void {
+export function preloadSfx(names: SfxName[] = ['tap', 'tap2', 'tap3', 'correct', 'coin', 'wrong', 'whoosh', 'combo']): void {
   names.forEach((name) => playerFor(name));
 }
 
@@ -152,18 +159,35 @@ function playSfxNow(name: SfxName): void {
   }
 }
 
+/**
+ * The press family. A row of letter tiles is tapped six times in a row, and the
+ * same sound six times at the same pitch is what makes a game feel cheap, so a
+ * tap picks one of three near identical presses and never the one it just used.
+ */
+const TAP_VARIANTS: SfxName[] = ['tap', 'tap2', 'tap3'];
+let lastTap: SfxName | null = null;
+
+function pickTap(): SfxName {
+  const options = TAP_VARIANTS.filter((variant) => variant !== lastTap);
+  const pool = options.length > 0 ? options : TAP_VARIANTS;
+  const picked = pool[Math.floor(Math.random() * pool.length)] ?? 'tap';
+  lastTap = picked;
+  return picked;
+}
+
 export function playSfx(name: SfxName): void {
   if (!sfxEnabled) return;
-  if (speechActive && DEFERRED.includes(name)) {
+  const sound = name === 'tap' ? pickTap() : name;
+  if (speechActive && DEFERRED.includes(sound)) {
     // Only the most recent reward is kept: a queue of chimes would arrive as a
     // pile of noise the moment the voice stops.
-    heldSound = name;
+    heldSound = sound;
     if (holdTimer === null) {
       holdTimer = setTimeout(releaseHeldSound, MAX_HOLD_MS);
     }
     return;
   }
-  playSfxNow(name);
+  playSfxNow(sound);
 }
 
 function releaseHeldSound(): void {
