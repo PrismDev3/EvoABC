@@ -72,7 +72,116 @@ const SOUND_RULES = {
   tap3: PRESS_RULE,
 };
 
+/**
+ * How bright a sound is allowed to be, as a spectral centroid in hertz.
+ *
+ * This is the rule that catches a sound that is too high pitched. Every reward
+ * in the app used to sit an octave higher than it does now, with its top note
+ * between C6 and A6, and a phone speaker turns that range into a whistle: the
+ * coins measured 1741 Hz of centroid and the gems 1466 Hz, and a complaint that
+ * the buttons "sound like horrid high pitch beeps" is what that sounds like.
+ *
+ * The ceilings below are the measured brightness of each sound after they were
+ * moved down an octave, with room to grow rather than none at all. A new sound
+ * with no entry of its own falls back to the default, so nothing can sneak in
+ * bright by being added under a new name.
+ */
+const BRIGHTNESS_LIMITS = {
+  tap: 450,
+  tap2: 450,
+  tap3: 450,
+  combo: 600,
+  correct: 650,
+  daily: 650,
+  evolve: 550,
+  gem: 800,
+  hatch: 650,
+  coin: 1000,
+  lose: 500,
+  music: 400,
+  roar1: 700,
+  roar2: 700,
+  roar3: 700,
+  whoosh: 900,
+  wrong: 700,
+  eggshake: 1100,
+};
+
+const DEFAULT_BRIGHTNESS_LIMIT = 1200;
+
+/**
+ * No sound in the app may peak near full scale. A file that does has no headroom
+ * left for the soft limiter and arrives in the ear as a shutdown, and the whole
+ * palette used to sit between -0.9 and -2.2 dB. The music is exempt only because
+ * it is a long loop played well under everything else.
+ */
+const MAX_PEAK_DB = -1.5;
+
 const toDbEarly = (value) => (value <= 0 ? -140 : 20 * Math.log10(value));
+
+/**
+ * The centre of gravity of a sound's spectrum, in hertz: low is warm, high is
+ * shrill. Measured on the loudest 2048 sample window with a plain radix two FFT,
+ * which is small enough to keep this script dependency free.
+ */
+function spectralCentroid(samples, sampleRate) {
+  const N = 2048;
+  let peakAt = 0;
+  let loudest = 0;
+  for (let i = 0; i + N <= samples.length; i += 256) {
+    let energy = 0;
+    for (let k = i; k < i + N; k += 1) energy += samples[k] * samples[k];
+    if (energy > loudest) {
+      loudest = energy;
+      peakAt = i;
+    }
+  }
+  if (loudest === 0) return 0;
+
+  const re = new Float64Array(N);
+  const im = new Float64Array(N);
+  for (let i = 0; i < N; i += 1) {
+    const s = samples[Math.min(peakAt + i, samples.length - 1)];
+    // Hann window, so the edges of the window do not smear the spectrum.
+    re[i] = s * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (N - 1)));
+  }
+  for (let i = 1, j = 0; i < N; i += 1) {
+    let bit = N >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) {
+      [re[i], re[j]] = [re[j], re[i]];
+      [im[i], im[j]] = [im[j], im[i]];
+    }
+  }
+  for (let len = 2; len <= N; len <<= 1) {
+    const angle = (-2 * Math.PI) / len;
+    for (let i = 0; i < N; i += len) {
+      for (let k = 0; k < len / 2; k += 1) {
+        const wr = Math.cos(angle * k);
+        const wi = Math.sin(angle * k);
+        const ur = re[i + k];
+        const ui = im[i + k];
+        const vr = re[i + k + len / 2] * wr - im[i + k + len / 2] * wi;
+        const vi = re[i + k + len / 2] * wi + im[i + k + len / 2] * wr;
+        re[i + k] = ur + vr;
+        im[i + k] = ui + vi;
+        re[i + k + len / 2] = ur - vr;
+        im[i + k + len / 2] = ui - vi;
+      }
+    }
+  }
+
+  const binHz = sampleRate / N;
+  let total = 0;
+  let weighted = 0;
+  for (let i = 1; i < N / 2; i += 1) {
+    const power = re[i] * re[i] + im[i] * im[i];
+    total += power;
+    weighted += power * i * binHz;
+  }
+  return total > 0 ? weighted / total : 0;
+}
 
 /** Sounds that are played on repeat, whose first and last samples must join. */
 const LOOPING = new Set(['music']);
@@ -165,6 +274,7 @@ function measure(samples, sampleRate) {
     clipped,
     maxStep,
     harshness: totalEnergy > 0 ? residualEnergy / totalEnergy : 0,
+    centroid: spectralCentroid(samples, sampleRate),
     ringMs,
     first: samples[0],
     last: samples[samples.length - 1],
@@ -185,7 +295,7 @@ if (files.length === 0) {
 }
 
 const failures = [];
-console.log('\n  sound          length    peak      rms      dc   clicks   step   fizz    ring');
+console.log('\n  sound          length    peak      rms      dc   clicks   step   fizz    ring   bright');
 
 for (const name of files) {
   const key = name.replace('.wav', '');
@@ -207,6 +317,13 @@ for (const name of files) {
   } else if (Math.abs(result.first) > 0.03 || Math.abs(result.last) > 0.03) {
     problems.push('edge is not silent');
   }
+  if (key !== 'music' && toDbEarly(result.peak) > MAX_PEAK_DB) {
+    problems.push(`peak ${toDbEarly(result.peak).toFixed(1)} dB is too close to full scale, keep it under ${MAX_PEAK_DB} dB`);
+  }
+  const brightest = BRIGHTNESS_LIMITS[key] ?? DEFAULT_BRIGHTNESS_LIMIT;
+  if (result.centroid > brightest) {
+    problems.push(`centroid ${Math.round(result.centroid)} Hz over ${brightest} Hz, which reads as a high pitch beep`);
+  }
   const rules = SOUND_RULES[key];
   if (rules !== undefined) {
     if (toDbEarly(result.peak) > rules.peakDb) problems.push(`peak ${toDbEarly(result.peak).toFixed(1)} dB over ${rules.peakDb} dB for a press`);
@@ -227,7 +344,9 @@ for (const name of files) {
       .toFixed(1)
       .padStart(6)} dB  ${result.dc.toFixed(4).padStart(6)}  ${String(result.clipped).padStart(6)}  ${result.maxStep
       .toFixed(3)
-      .padStart(6)}  ${(result.harshness * 100).toFixed(1).padStart(5)}%  ${result.ringMs.toFixed(0).padStart(5)}ms`,
+      .padStart(6)}  ${(result.harshness * 100).toFixed(1).padStart(5)}%  ${result.ringMs.toFixed(0).padStart(5)}ms  ${Math.round(result.centroid)
+      .toString()
+      .padStart(5)} Hz`,
   );
 }
 

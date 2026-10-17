@@ -324,6 +324,101 @@ export function soundOutSteps(input: string): SoundStep[] | null {
   });
 }
 
+/** One thing the voice says, as data. src/lib/tts.ts turns these into speech. */
+export interface SpeechStep {
+  text: string;
+  /** Scales the pace from the settings. 1 is the pace a grown up chose. */
+  speedFactor: number;
+  /** Quiet gap after this step, in milliseconds. */
+  pauseAfterMs: number;
+}
+
+/** A word on its own is a sentence, so the voice keeps its last consonant. */
+function asSentence(text: string): string {
+  return /[.!?]$/.test(text) ? text : `${text}.`;
+}
+
+/**
+ * How a spelling word is dictated.
+ *
+ * A child cannot tell "nap" from "nat" out of a phone speaker: p is the quietest
+ * of the voiceless stops and its burst lasts about fifteen milliseconds, which is
+ * precisely what a small speaker eats. That is why the two phases differ, and
+ * why the sounds are the thing that settles an ending:
+ *
+ * - **practice** says the word, then every sound with a real word that proves it,
+ *   then the word twice. The child hears "nnn, ah, puh" and knows it ends in p.
+ * - **test** says the word three times, plainly, the way a school test sounds,
+ *   with the last pass a little slower. A test that read the sounds out loud
+ *   would not be a test, so a miss is answered with the ending instead
+ *   (endingHintSteps below), which is what a teacher does when asked.
+ */
+export function dictationSteps(word: string, phase: 'practice' | 'test' = 'practice'): SpeechStep[] {
+  const text = spokenWord(word);
+  if (text.length === 0) return [];
+  const said: SpeechStep = { text: asSentence(text), speedFactor: 1, pauseAfterMs: 0 };
+
+  // The last pass is always the slowest one, because that is the pass a child
+  // copies: the last thing heard is what they say back to themselves.
+  if (phase === 'test') {
+    return [
+      { ...said, speedFactor: 1, pauseAfterMs: 560 },
+      { ...said, speedFactor: 0.96, pauseAfterMs: 720 },
+      { ...said, speedFactor: 0.9 },
+    ];
+  }
+
+  const sounds = soundOutSteps(word);
+  if (sounds === null) {
+    // Nothing worth sounding out, so the word is simply said twice, slowly.
+    return [
+      { ...said, speedFactor: 1, pauseAfterMs: 620 },
+      { ...said, speedFactor: 0.9 },
+    ];
+  }
+  // A sound is proved by a different word. "shh, as in ship" while the child is
+  // spelling SHIP proves nothing, so a word never acts as its own anchor.
+  const plain = text.toLowerCase();
+  return [
+    { ...said, pauseAfterMs: 430 },
+    ...sounds.map((step) => {
+      const useAnchor = step.anchor.length > 0 && step.anchor.toLowerCase() !== plain;
+      return {
+        text: useAnchor ? `${step.sound}, as in ${step.anchor}.` : `${step.sound}.`,
+        speedFactor: 0.98,
+        pauseAfterMs: 230,
+      };
+    }),
+    { ...said, speedFactor: 0.96, pauseAfterMs: 380 },
+    { ...said, speedFactor: 0.88 },
+  ];
+}
+
+/**
+ * The word, then the sound it ends with and a word that proves it: the answer to
+ * a child who heard "nat" when the app said "nap".
+ *
+ * It is two steps and ends on the sound on purpose. A missed word is followed by
+ * the next one a couple of seconds later, so a hint that said the word again at
+ * the end would be cut off half way through; and the sound is the part that was
+ * missing, so that is the part worth finishing on.
+ */
+export function endingHintSteps(word: string): SpeechStep[] {
+  const text = spokenWord(word);
+  if (text.length === 0) return [];
+  const sounds = soundOutSteps(word);
+  const last = sounds === null ? undefined : sounds[sounds.length - 1];
+  if (last === undefined) return [{ text: asSentence(text), speedFactor: 0.9, pauseAfterMs: 0 }];
+  return [
+    { text: asSentence(text), speedFactor: 1, pauseAfterMs: 520 },
+    {
+      text: last.anchor.length > 0 ? `It ends with ${last.sound}, as in ${last.anchor}.` : `It ends with ${last.sound}.`,
+      speedFactor: 0.96,
+      pauseAfterMs: 0,
+    },
+  ];
+}
+
 /**
  * The same sounds as one plain line, without the example words:
  * DOLPHIN becomes "duh, aw, lll, fff, ih, nnn".

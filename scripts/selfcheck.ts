@@ -75,6 +75,8 @@ import {
   SOUND_ANCHORS,
   SOUND_NAMES,
   soundChunks,
+  dictationSteps,
+  endingHintSteps,
   soundOutSteps,
   soundOutText,
   spokenLetterList,
@@ -498,6 +500,66 @@ check(
 );
 check('a spelling is dictated one letter at a time', spokenLetterList('CAT').join(',') === 'see,ay,tee', spokenLetterList('CAT').join(','));
 check('a letter name is clean for the voice', spokenLetterList('c-a t!').join(',') === 'see,ay,tee');
+// A child cannot tell "nap" from "nat" out of a phone speaker, so the ending of
+// a word is the thing a dictation has to make certain. These are the rules that
+// keep it that way for every word in the curriculum, not just the one that was
+// reported.
+const practiceNap = dictationSteps('NAP', 'practice');
+const testNap = dictationSteps('NAP', 'test');
+const napEnding = endingHintSteps('NAP');
+check('a practice word is said before it is sounded out', practiceNap[0]?.text === 'Nap.', practiceNap[0]?.text ?? 'none');
+check(
+  'a practice word names every one of its sounds',
+  ['nnn', 'ah', 'puh'].every((sound) => practiceNap.some((step) => step.text.startsWith(`${sound},`))),
+  practiceNap.map((step) => step.text).join(' | ').slice(0, 90),
+);
+check('a practice word ends on the word itself', practiceNap[practiceNap.length - 1]?.text === 'Nap.');
+check(
+  'the last pass of a practice word is slower than the first',
+  (practiceNap[practiceNap.length - 1]?.speedFactor ?? 1) < (practiceNap[0]?.speedFactor ?? 1),
+);
+check(
+  'a test word is the word three times and nothing else',
+  testNap.length === 3 && testNap.every((step) => step.text === 'Nap.'),
+  testNap.map((step) => step.text).join(' | '),
+);
+check('a test word never gives away a letter or a sound', !testNap.some((step) => /as in/.test(step.text)));
+check('the last pass of a test word is slower too', (testNap[2]?.speedFactor ?? 1) < (testNap[0]?.speedFactor ?? 1));
+check(
+  'the ending hint names the last sound with a word that proves it',
+  napEnding[1]?.text === 'It ends with puh, as in pig.',
+  napEnding[1]?.text ?? 'none',
+);
+check('the ending hint says the word before the ending', napEnding[0]?.text === 'Nap.' && napEnding.length === 2, napEnding.map((s) => s.text).join(' | '));
+check('a word with nothing to sound out still gets a plain hint', endingHintSteps('A').length >= 1);
+const wordsWithAQuietEnding = ALL_LEVELS.flatMap((level) => level.words).filter((word) => {
+  const sounds = soundOutSteps(word.word);
+  const last = sounds === null ? undefined : sounds[sounds.length - 1];
+  if (last === undefined) return false;
+  return !dictationSteps(word.word, 'practice').some((step) => step.text.includes(last.sound));
+});
+const wordsThatProveThemselves = ALL_LEVELS.flatMap((level) => level.words).filter((word) =>
+  dictationSteps(word.word, 'practice').some((step) => step.text.toLowerCase().includes(`as in ${word.word.toLowerCase()}.`)),
+);
+check(
+  'no word is used as the proof of its own sound',
+  wordsThatProveThemselves.length === 0,
+  wordsThatProveThemselves.map((word) => word.word).slice(0, 6).join(', '),
+);
+check(
+  'every school word says its last sound when it is practised',
+  wordsWithAQuietEnding.length === 0,
+  wordsWithAQuietEnding.map((word) => word.word).slice(0, 6).join(', '),
+);
+check(
+  'every school word is said first and last in a practice dictation',
+  ALL_LEVELS.flatMap((level) => level.words).every((word) => {
+    const plan = dictationSteps(word.word, 'practice');
+    const said = `${spokenWord(word.word)}.`;
+    return plan[0]?.text === said && plan[plan.length - 1]?.text === said;
+  }),
+);
+
 const napSounds = soundOutSteps('NAP');
 check('sounding out carries the sound and its word', napSounds?.length === 3, String(napSounds?.length ?? 0));
 check('the sound of n comes with a word that starts with it', napSounds?.[0]?.anchor === 'no', napSounds?.[0]?.anchor ?? 'none');

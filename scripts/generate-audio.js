@@ -354,17 +354,15 @@ function writeWav(fileName, samples) {
  */
 function press(detune) {
   const track = createTrack(0.13);
-  // The fingertip. A whisper of noise up where a phone speaker actually works,
-  // which is what gives the touch its crispness without any audible fizz.
-  track.air({ duration: 0.009, amp: 0.05, cutoff: 3200, attack: 0.001, release: 0.006, round: 2 });
-  // The wood. Damped in 10 ms, so the whole thing is over before the ear can
-  // resolve it as a pitch: a tap, not a note.
-  track.note({ freq: NOTE.D5 * (1 + detune), duration: 0.03, amp: 0.5, decay: 0.01, brightness: 0.3, attack: 0.006 });
-  // A quiet octave for crispness, and a quiet fifth below for body: the two of
-  // them together read as a knuckle on a wooden desk.
-  track.note({ freq: NOTE.D5 * 2 * (1 + detune), duration: 0.018, amp: 0.09, decay: 0.006, brightness: 0.22, attack: 0.004 });
-  track.note({ freq: (NOTE.G4 * 1) * (1 + detune), duration: 0.045, amp: 0.1, decay: 0.011, brightness: 0.2, attack: 0.004 });
-  return track.finish({ target: 0.32, cutoff: 4200 });
+  // The body. Low enough that a phone speaker renders it as a thump rather than
+  // a whistle, damped in 13 ms so the ear hears a touch and not a note.
+  track.note({ freq: NOTE.E4 * (1 + detune), duration: 0.045, amp: 0.5, decay: 0.013, brightness: 0.22, attack: 0.005 });
+  // A fourth above it for the wood, quieter and even shorter.
+  track.note({ freq: NOTE.A4 * (1 + detune), duration: 0.03, amp: 0.2, decay: 0.009, brightness: 0.16, attack: 0.004 });
+  // A dark knock of noise for the fingertip. Nothing here above 700 Hz, which
+  // is what stops a press reading as a click or a beep.
+  track.air({ duration: 0.012, amp: 0.05, cutoff: 700, attack: 0.001, release: 0.008, round: 2 });
+  return track.finish({ target: 0.32, cutoff: 1500 });
 }
 
 /**
@@ -386,44 +384,57 @@ function tap3() {
   return press(0.014);
 }
 
+/**
+ * The reward family. Every melody used to sit an octave higher than this, with
+ * its top note between C6 and A6, which is the range a phone speaker turns into
+ * a whistle: measured as a spectral centroid, the coins were at 1741 Hz and the
+ * gems at 1466 Hz, and a coin is the sound a child hears most often in the whole
+ * app. They are one octave lower here, each with a low body note underneath, a
+ * lower peak, and a low pass that stops the top end before it can ring.
+ *
+ * The rule of thumb: nothing melodic above C5 (523 Hz), and no one shot louder
+ * than about -3 dB. Warm, not bright.
+ */
+
 /** Two warm notes climbing, the sound of getting it right. */
 function correct() {
   const track = createTrack(0.6);
-  track.note({ freq: NOTE.C5, duration: 0.24, amp: 0.42, decay: 0.16, brightness: 0.9 });
-  track.note({ freq: NOTE.G5, start: 0.12, duration: 0.42, amp: 0.46, decay: 0.34, brightness: 0.95 });
-  track.note({ freq: NOTE.C6, start: 0.12, duration: 0.42, amp: 0.16, decay: 0.3, brightness: 0.8 });
-  return track.finish({ target: 0.82 });
+  track.note({ freq: NOTE.C4, duration: 0.3, amp: 0.4, decay: 0.2, brightness: 0.6 });
+  track.note({ freq: NOTE.G4, start: 0.12, duration: 0.42, amp: 0.44, decay: 0.34, brightness: 0.6 });
+  track.note({ freq: NOTE.C5, start: 0.12, duration: 0.42, amp: 0.18, decay: 0.3, brightness: 0.5 });
+  return track.finish({ target: 0.62, cutoff: 3600 });
 }
 
-/** Bright but gentle double ping as coins drop out of a solved word. */
+/** Two soft wooden coins dropping, with a body note under them. */
 function coin() {
   const track = createTrack(0.36);
-  track.note({ freq: NOTE.E6, duration: 0.14, amp: 0.4, decay: 0.075, brightness: 0.82 });
-  track.note({ freq: NOTE.A6, start: 0.075, duration: 0.24, amp: 0.34, decay: 0.11, brightness: 0.78 });
-  track.note({ freq: NOTE.A5, start: 0.075, duration: 0.24, amp: 0.14, decay: 0.14, brightness: 0.7 });
-  return track.finish({ target: 0.8, cutoff: 7200 });
+  track.note({ freq: NOTE.E5, duration: 0.14, amp: 0.36, decay: 0.075, brightness: 0.7 });
+  track.note({ freq: NOTE.A5, start: 0.075, duration: 0.24, amp: 0.28, decay: 0.11, brightness: 0.6 });
+  track.note({ freq: NOTE.A4, start: 0.075, duration: 0.26, amp: 0.2, decay: 0.15, brightness: 0.5 });
+  return track.finish({ target: 0.6, cutoff: 4200 });
 }
 
-/** Three note sparkle for gems. */
+/** Three note sparkle for gems, an octave lower than it used to be. */
 function gem() {
   const track = createTrack(0.7);
-  const notes = [NOTE.C6, NOTE.E6, NOTE.G6];
+  const notes = [NOTE.C5, NOTE.E5, NOTE.G5];
   notes.forEach((freq, index) => {
-    track.note({ freq, start: index * 0.075, duration: 0.4 - index * 0.05, amp: 0.34, decay: 0.26 - index * 0.04, brightness: 0.82 });
+    track.note({ freq, start: index * 0.075, duration: 0.4 - index * 0.05, amp: 0.3, decay: 0.26 - index * 0.04, brightness: 0.7 });
   });
-  track.note({ freq: NOTE.C5, start: 0.15, duration: 0.5, amp: 0.12, decay: 0.4, brightness: 0.7 });
-  return track.finish({ target: 0.8, cutoff: 7400 });
+  track.note({ freq: NOTE.C4, start: 0.05, duration: 0.55, amp: 0.2, decay: 0.42, brightness: 0.5 });
+  return track.finish({ target: 0.6, cutoff: 4200 });
 }
 
 /** A quick pentatonic run for a big combo, in tune with the music. */
 function combo() {
   const track = createTrack(0.85);
-  const run = [NOTE.C5, NOTE.D5, NOTE.E5, NOTE.G5, NOTE.A5];
+  const run = [NOTE.C4, NOTE.D4, NOTE.E4, NOTE.G4, NOTE.A4];
   run.forEach((freq, index) => {
-    track.note({ freq, start: index * 0.085, duration: 0.3, amp: 0.3, decay: 0.2, brightness: 0.95 });
+    track.note({ freq, start: index * 0.085, duration: 0.3, amp: 0.32, decay: 0.2, brightness: 0.7 });
   });
-  track.note({ freq: NOTE.C6, start: 0.42, duration: 0.42, amp: 0.26, decay: 0.32, brightness: 0.9 });
-  return track.finish({ target: 0.85 });
+  track.note({ freq: NOTE.C5, start: 0.42, duration: 0.42, amp: 0.26, decay: 0.32, brightness: 0.6 });
+  track.note({ freq: NOTE.C4, start: 0.2, duration: 0.6, amp: 0.16, decay: 0.44, brightness: 0.5 });
+  return track.finish({ target: 0.66, cutoff: 4200 });
 }
 
 /** A soft, kind "not quite" that never sounds like a buzzer. */
@@ -449,57 +460,57 @@ function lose() {
 /** Airy transition for screen changes and for putting a letter back. */
 function whoosh() {
   const track = createTrack(0.42);
-  track.air({ duration: 0.36, amp: 0.5, cutoff: 1500, attack: 0.08, release: 0.14, round: 2 });
-  track.note({ freq: NOTE.G5, start: 0.06, duration: 0.24, amp: 0.1, decay: 0.18, brightness: 0.6 });
-  return track.finish({ target: 0.5, cutoff: 5200 });
+  track.air({ duration: 0.36, amp: 0.5, cutoff: 1300, attack: 0.08, release: 0.14, round: 2 });
+  track.note({ freq: NOTE.G4, start: 0.06, duration: 0.24, amp: 0.1, decay: 0.18, brightness: 0.5 });
+  return track.finish({ target: 0.5, cutoff: 4200 });
 }
 
 /** Soft taps as an egg splits, then a happy pair of notes. */
 function hatch() {
   const track = createTrack(1.0);
   for (let i = 0; i < 6; i += 1) {
-    track.air({ start: i * 0.06, duration: 0.05, amp: 0.34 - i * 0.02, cutoff: 1700, attack: 0.004, release: 0.02, round: 2 });
+    track.air({ start: i * 0.06, duration: 0.05, amp: 0.34 - i * 0.02, cutoff: 1500, attack: 0.004, release: 0.02, round: 2 });
   }
-  track.note({ freq: NOTE.C5, start: 0.38, duration: 0.3, amp: 0.36, decay: 0.2, brightness: 0.9 });
-  track.note({ freq: NOTE.G5, start: 0.5, duration: 0.44, amp: 0.4, decay: 0.32, brightness: 0.95 });
-  return track.finish({ target: 0.82 });
+  track.note({ freq: NOTE.C4, start: 0.38, duration: 0.3, amp: 0.34, decay: 0.2, brightness: 0.7 });
+  track.note({ freq: NOTE.G4, start: 0.5, duration: 0.44, amp: 0.4, decay: 0.32, brightness: 0.7 });
+  return track.finish({ target: 0.68, cutoff: 4200 });
 }
 
 /** A warm rising sweep and a chord for an evolution. */
 function evolve() {
   const track = createTrack(2.1);
   track.pad({ freq: NOTE.C4, duration: 1.5, amp: 0.2, attack: 0.6, release: 0.6 });
-  const climb = [NOTE.C5, NOTE.E5, NOTE.G5, NOTE.C6];
+  const climb = [NOTE.C4, NOTE.E4, NOTE.G4, NOTE.C5];
   climb.forEach((freq, index) => {
-    track.note({ freq, start: 0.3 + index * 0.2, duration: 0.6, amp: 0.24, decay: 0.4, brightness: 0.95 });
+    track.note({ freq, start: 0.3 + index * 0.2, duration: 0.6, amp: 0.24, decay: 0.4, brightness: 0.8 });
   });
-  [NOTE.C5, NOTE.E5, NOTE.G5].forEach((freq) => {
+  [NOTE.C4, NOTE.E4, NOTE.G4].forEach((freq) => {
     track.pad({ freq, start: 1.25, duration: 0.8, amp: 0.16, attack: 0.1, release: 0.5 });
   });
-  return track.finish({ target: 0.88 });
+  return track.finish({ target: 0.78, cutoff: 4600 });
 }
 
-/** Four note fanfare for a cleared level. */
+/** Four note fanfare for a cleared level, one octave down with a low body. */
 function victory() {
   const track = createTrack(1.7);
-  const notes = [NOTE.C5, NOTE.E5, NOTE.G5, NOTE.C6];
+  const notes = [NOTE.C4, NOTE.E4, NOTE.G4, NOTE.C5];
   notes.forEach((freq, index) => {
-    track.note({ freq, start: index * 0.16, duration: 0.42, amp: 0.36, decay: 0.3, brightness: 0.95 });
+    track.note({ freq, start: index * 0.16, duration: 0.42, amp: 0.36, decay: 0.3, brightness: 0.75 });
   });
-  track.note({ freq: NOTE.C6, start: 0.66, duration: 0.9, amp: 0.34, decay: 0.7, brightness: 0.9 });
-  [NOTE.C5, NOTE.E5, NOTE.G5].forEach((freq) => {
-    track.pad({ freq, start: 0.66, duration: 0.9, amp: 0.13, attack: 0.08, release: 0.5 });
+  track.note({ freq: NOTE.C5, start: 0.66, duration: 0.9, amp: 0.28, decay: 0.7, brightness: 0.6 });
+  [NOTE.C4, NOTE.E4, NOTE.G4].forEach((freq) => {
+    track.pad({ freq, start: 0.66, duration: 0.9, amp: 0.14, attack: 0.08, release: 0.5 });
   });
-  return track.finish({ target: 0.9 });
+  return track.finish({ target: 0.68, cutoff: 4200 });
 }
 
-/** A warm bell for the daily reward. */
+/** A warm wooden bell for the daily reward, an octave lower than before. */
 function daily() {
   const track = createTrack(1.1);
-  track.note({ freq: NOTE.G5, duration: 0.95, amp: 0.42, decay: 0.62, brightness: 0.95, attack: 0.01 });
-  track.note({ freq: NOTE.C6, start: 0.04, duration: 0.8, amp: 0.2, decay: 0.5, brightness: 0.85 });
-  track.note({ freq: NOTE.D6, start: 0.08, duration: 0.7, amp: 0.12, decay: 0.42, brightness: 0.8 });
-  return track.finish({ target: 0.8, cutoff: 8400 });
+  track.note({ freq: NOTE.G4, duration: 0.95, amp: 0.42, decay: 0.62, brightness: 0.7, attack: 0.01 });
+  track.note({ freq: NOTE.C5, start: 0.04, duration: 0.8, amp: 0.22, decay: 0.5, brightness: 0.6 });
+  track.note({ freq: NOTE.C4, start: 0.02, duration: 1.0, amp: 0.18, decay: 0.7, brightness: 0.5 });
+  return track.finish({ target: 0.62, cutoff: 5000 });
 }
 
 /** Rounded maraca shaker for a crate being shaken before it opens. */
@@ -523,7 +534,7 @@ function creature({ base, second, wobble, wobbleHz, duration }) {
   track.note({ freq: base, duration: duration * 0.6, amp: 0.34, decay: 0.3, brightness: 0.75, vibrato: wobble, vibratoHz: wobbleHz, attack: 0.03 });
   track.note({ freq: second, start: duration * 0.32, duration: duration * 0.6, amp: 0.32, decay: 0.34, brightness: 0.9, attack: 0.02 });
   track.air({ start: 0.05, duration: duration * 0.7, amp: 0.1, cutoff: 900, attack: 0.08, release: 0.2, round: 2 });
-  return track.finish({ target: 0.78, cutoff: 6200 });
+  return track.finish({ target: 0.72, cutoff: 6200 });
 }
 
 const roar1 = () => creature({ base: NOTE.C5, second: NOTE.E5, wobble: 0.02, wobbleHz: 8, duration: 0.9 });

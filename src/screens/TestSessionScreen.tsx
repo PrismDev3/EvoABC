@@ -19,7 +19,7 @@ import { Confetti, EvolveBurst, FloatingReward, PopIn, ScreenShake, SparkleRing 
 import { CheckIcon, CloseIcon, CoinIcon, GemIcon, SparkleIcon } from '../art/Icons';
 import { Dino } from '../art/Dino';
 import { haptic } from '../lib/feedback';
-import { dictateWord, soundOut, stopSpeech, teachWord } from '../lib/tts';
+import { dictateWord, hintEnding, soundOut, stopSpeech, teachWord } from '../lib/tts';
 import { playRoar } from '../audio/sfx';
 import { TestRoundResult } from '../state/GameContext';
 
@@ -51,6 +51,9 @@ export default function TestSessionScreen() {
   const [showRoundCard, setShowRoundCard] = useState(false);
   const startedRef = useRef<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** The "it ends with puh" hint that follows a miss, kept apart from the one
+   * that clears the feedback card so neither cancels the other. */
+  const hintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Start the plan when this screen opens for a list that is not running yet.
   useEffect(() => {
@@ -67,6 +70,7 @@ export default function TestSessionScreen() {
   useEffect(() => {
     return () => {
       if (timer.current !== null) clearTimeout(timer.current);
+      if (hintTimer.current !== null) clearTimeout(hintTimer.current);
       stopSpeech();
     };
   }, []);
@@ -83,8 +87,9 @@ export default function TestSessionScreen() {
     if (plan === null || word === null) return undefined;
     if (plan.phase !== 'practice' && plan.phase !== 'test') return undefined;
     const delay = plan.phase === 'test' ? 650 : 520;
-    // Said twice: a school list is the one place a word has to land first time.
-    const speakTimer = setTimeout(() => dictateWord(word), delay);
+    // A test word is said plainly three times; a practice word comes with its
+    // sounds, because that is the phase where the child is still learning it.
+    const speakTimer = setTimeout(() => dictateWord(word, plan.phase === 'test' ? 'test' : 'practice'), delay);
     return () => clearTimeout(speakTimer);
   }, [plan?.index, plan?.phase, plan?.round, word]);
 
@@ -109,6 +114,13 @@ export default function TestSessionScreen() {
       else setShakeKey((key) => key + 1);
       const delay = correct ? 900 : 2400;
       timer.current = setTimeout(() => setFeedback(null), delay);
+      // A miss is answered with the ending of the word. The last sound of a word
+      // is the first thing a small speaker eats, and a child marked wrong for
+      // spelling exactly what they heard has not learnt anything.
+      if (!correct) {
+        if (hintTimer.current !== null) clearTimeout(hintTimer.current);
+        hintTimer.current = setTimeout(() => hintEnding(word), 700);
+      }
     },
     [feedback, plan, testAnswer, word],
   );

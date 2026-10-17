@@ -22,7 +22,7 @@ import { lookupWord } from '../data/words';
 import { Pattern, patternForWord } from '../game/phonics';
 import { haptic } from '../lib/feedback';
 import { playSfx } from '../audio/sfx';
-import { dictateWord, soundOut, speakLine, speakSentence, stopSpeech, teachWord } from '../lib/tts';
+import { dictateWord, hintEnding, soundOut, speakLine, speakSentence, stopSpeech, teachWord } from '../lib/tts';
 
 /**
  * One learning level: five words, three hearts, three spelling modes.
@@ -56,6 +56,8 @@ export default function PlayScreen() {
   const [lostSummary, setLostSummary] = useState<SessionSummary | null>(null);
   const startedRef = useRef<string | null>(null);
   const advanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** The "it ends with puh" hint that follows a miss in listen mode. */
+  const hintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const finishedRef = useRef(false);
 
   // Start a fresh session whenever this screen opens for a level.
@@ -102,6 +104,7 @@ export default function PlayScreen() {
   useEffect(() => {
     return () => {
       if (advanceTimer.current !== null) clearTimeout(advanceTimer.current);
+      if (hintTimer.current !== null) clearTimeout(hintTimer.current);
       stopSpeech();
     };
   }, []);
@@ -121,8 +124,14 @@ export default function PlayScreen() {
         setChosenLetter(null);
         nextQuestion();
       }, delay);
+      // In listen mode the word was never on screen, so a miss gets the ending
+      // said back: the last sound is what a phone speaker eats first.
+      if (!correct && mode === 'listen') {
+        if (hintTimer.current !== null) clearTimeout(hintTimer.current);
+        hintTimer.current = setTimeout(() => hintEnding(currentWord), 620);
+      }
     },
-    [answer, feedback, nextQuestion, session],
+    [answer, feedback, mode, nextQuestion, session],
   );
 
   // Wrap up the session exactly once, whether it was won or ran out of hearts.

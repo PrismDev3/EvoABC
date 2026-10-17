@@ -81,9 +81,18 @@ exact list until it is passed.
    - **Learn**: the word is shown with its sound pattern highlighted, the voice
      says the word and spells it out loud, and the child builds it with letter tiles.
    - **Practice**: the word hides. Only the voice is left, and the child spells
-     what they heard from memory.
+     what they heard from memory. The dictation says the word, then each of its
+     sounds with a real word that proves it, then the word twice, because that is
+     the phase where the word is still being learnt.
    - **Spelling test**: real dictation. The word is spoken and never shown, one
-     try per word, and extra decoy letters are mixed into the tiles.
+     try per word, and extra decoy letters are mixed into the tiles. It is said
+     three times, the last pass a little slower, and it never reads out a letter
+     or a sound.
+
+A miss of a word the child only *heard* is answered with the ending of that word:
+"Nap. It ends with puh, as in pig." The quietest sound a phone speaker has to
+reproduce is the p, t or k at the end of a word, so a child who spells exactly
+what they heard should be told what the ending was rather than only told no.
 4. Anything missed is taught again in a new round that covers only those words,
    and the rounds keep coming until the whole list is passed. Passing pays 250
    coins, 6 gems and 140 XP, so a school test also grows the dinosaur.

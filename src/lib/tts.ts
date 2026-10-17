@@ -1,6 +1,6 @@
 import * as Speech from 'expo-speech';
 
-import { soundOutSteps, spokenLetterList, spokenWord, tidySentence } from './phonemes';
+import { SpeechStep, dictationSteps, endingHintSteps, spokenLetterList, spokenWord, tidySentence } from './phonemes';
 import { CLEARER_VOICE_STEPS, VoiceKind, VoiceRank, classifyVoice, voiceIsClear, rankVoice, speechRateFor } from './speechProfile';
 
 /**
@@ -321,31 +321,30 @@ export function speakWordSlow(word: string): void {
 }
 
 /**
+ * Turns the plan a pure module built into utterances. The pace for a step is the
+ * dictation pace from the settings, scaled by the factor the plan asked for, so
+ * a plan can say "the same word, a little slower". Every step is spoken on its
+ * own, which is what keeps a letter name or a sound from running into the next.
+ */
+function speakPlan(plan: SpeechStep[]): void {
+  if (plan.length === 0) return;
+  speakSteps(
+    plan.map((step) => ({
+      text: step.text,
+      speed: wordSpeed * step.speedFactor,
+      pitch: 1,
+      pauseAfter: step.pauseAfterMs,
+    })),
+  );
+}
+
+/**
  * Says the word, then each of its sounds with a word that proves the sound,
  * then the word twice more, which is the order a grown up uses at the kitchen
- * table. Very short or very plain words have nothing to sound out, so they are
- * simply said slowly instead.
+ * table: it is the practice plan in src/lib/phonemes.ts.
  */
 export function soundOut(word: string): void {
-  const text = spokenWord(word);
-  if (text.length === 0) return;
-  const steps = soundOutSteps(word);
-  if (steps === null) {
-    speakWordSlow(word);
-    return;
-  }
-  const said = asSentence(text);
-  speakSteps([
-    { text: said, speed: wordSpeed, pitch: 1, pauseAfter: 430 },
-    ...steps.map((step) => ({
-      text: step.anchor.length > 0 ? `${step.sound}, as in ${step.anchor}.` : `${step.sound}.`,
-      speed: wordSpeed * 0.98,
-      pitch: 1,
-      pauseAfter: 230,
-    })),
-    { text: said, speed: wordSpeed * 0.92, pitch: 1, pauseAfter: 360 },
-    { text: said, speed: wordSpeed, pitch: 1, pauseAfter: 0 },
-  ]);
+  speakPlan(dictationSteps(word, 'practice'));
 }
 
 /** One step per letter, so each letter name lands on its own. */
@@ -407,20 +406,22 @@ export function speakSentence(sentence: string, word?: string): void {
 }
 
 /**
- * The word on its own, said twice with a breath between, which is what a grown
- * up does at the kitchen table when the first go was not caught. The second
- * pass is a touch slower than the first, because that is the one a child
- * copies, and the gap between them is long enough to say the first one back in
- * their head before the second arrives.
+ * Dictates a spelling word. Practice includes the sounds, because that is how a
+ * child learns the word; a test says it plainly three times, because that is
+ * what a school test sounds like. Which is which lives in the pure plan.
  */
-export function dictateWord(word: string): void {
-  const text = spokenWord(word);
-  if (text.length === 0) return;
-  const said = asSentence(text);
-  speakSteps([
-    { text: said, speed: wordSpeed, pitch: 1, pauseAfter: 720 },
-    { text: said, speed: wordSpeed * 0.92, pitch: 1, pauseAfter: 0 },
-  ]);
+export function dictateWord(word: string, phase: 'practice' | 'test' = 'practice'): void {
+  speakPlan(dictationSteps(word, phase));
+}
+
+/**
+ * The rescue after a miss: the word, then the sound it ends with and a word that
+ * proves it. This exists because "/p/" at the end of a word is the quietest
+ * sound a phone speaker has to reproduce, and a child who was marked wrong for
+ * spelling what they actually heard deserves to be told what the ending was.
+ */
+export function hintEnding(word: string): void {
+  speakPlan(endingHintSteps(word));
 }
 
 /** Stops the voice and empties the queue, used when a screen closes. */
