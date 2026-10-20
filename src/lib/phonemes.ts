@@ -30,10 +30,13 @@ export function spokenWord(word: string): string {
 
 /** The letter names, the way they are said out loud. */
 export const LETTER_NAMES: Record<string, string> = {
-  A: 'ay',
+  // "aye" is the most universally unambiguous spelling of the letter A for TTS engines.
+  // "ay" is often misread as a short schwa-y that sounds like "at" on several voices.
+  A: 'aye',
   B: 'bee',
   C: 'see',
   D: 'dee',
+  // "ee" is universally read correctly as the letter E.
   E: 'ee',
   F: 'ef',
   G: 'jee',

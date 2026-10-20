@@ -73,7 +73,7 @@ export default function PlayScreen() {
   const question = session === null ? null : session.queue[session.index] ?? null;
   const word = question?.word ?? null;
   const mode = question?.mode ?? 'build';
-  const modeLabel = mode === 'build' ? 'Build the word' : mode === 'missing' ? 'Which letter is missing?' : 'Listen and spell';
+  const modeLabel = mode === 'build' ? 'Build the word' : mode === 'missing' ? 'Which letter fits?' : 'Listen and spell';
 
   // The teaching hook for the word on screen: authored focus letters when the
   // bank has them, otherwise whatever pattern detection finds.
@@ -309,7 +309,7 @@ export default function PlayScreen() {
                   activeIndex={question.missingIndex}
                   highlightIndex={feedback === null ? -1 : question.missingIndex}
                 />
-                <Text style={[type.h3, styles.pickLabel]}>Tap the letter that fits</Text>
+                <Text style={[type.h3, styles.pickLabel]}>Tap the letter that fits!</Text>
                 <View style={styles.choices}>
                   {question.choices.map((letter) => {
                     const isAnswer = letter === word.word[question.missingIndex];
@@ -352,15 +352,15 @@ export default function PlayScreen() {
             <Text style={[type.bodyBold, styles.footerText]} numberOfLines={2}>
               {feedback === null
                 ? session.combo >= 3
-                  ? `Combo x${session.combo}! The kaiju is roaring.`
+                  ? `Combo x${session.combo}! The kaiju is roaring!`
                   : question === null
-                    ? 'Get ready'
+                    ? 'Get ready!'
                     : mode === 'listen'
-                      ? 'Listen closely, then build the word'
-                      : 'Sound it out, letter by letter'
+                      ? 'Listen closely, then build the word!'
+                      : 'Sound it out, one letter at a time!'
                 : feedback.correct
-                  ? 'Monster roar! That is right.'
-                  : `It is spelled ${feedback.word}. Try the next one.`}
+                  ? 'Yes! That is right!'
+                  : `The word is ${feedback.word}. You can do it!`}
             </Text>
           </View>
         </Panel>

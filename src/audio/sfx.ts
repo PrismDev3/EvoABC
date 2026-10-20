@@ -87,11 +87,55 @@ const VOLUME: Partial<Record<SfxName, number>> = {
 const DEFERRED: SfxName[] = ['correct', 'coin', 'gem', 'combo', 'hatch', 'evolve', 'victory', 'daily', 'roar1', 'roar2', 'roar3'];
 
 /** How loud the music sits normally, and how far it drops under the voice. */
-const MUSIC_VOLUME = 0.16;
-const MUSIC_DUCKED = 0.035;
+const MUSIC_VOLUME = 0.22;
+const MUSIC_DUCKED = 0.04;
+
+/**
+ * How long the volume fade takes when ducking or unducking, in milliseconds.
+ * A sudden drop is jarring; a 350ms ramp is smooth without being slow.
+ */
+const DUCK_FADE_MS = 350;
+
+/**
+ * How many steps to use for the volume ramp. More steps = smoother curve,
+ * but each step is a setTimeout, so keep it reasonable.
+ */
+const FADE_STEPS = 14;
 
 const players = new Map<SfxName, AudioPlayer>();
-let musicPlayer: AudioPlayer | null = null;
+/**
+ * Dual-player crossfade music system.
+ *
+ * A single looping WAV always has a small gap or click at the loop point
+ * because the decoder has to seek back to the start while the OS audio thread
+ * keeps running — even a few milliseconds of silence is very audible.
+ *
+ * The fix is two players that take turns. While player A is playing, we
+ * schedule a crossfade near its end so player B starts at full volume just as
+ * A fades out, then A seeks to zero ready to be B next time. The gap is gone
+ * because no seeking happens mid-playback on the active player.
+ *
+ * We derive the crossfade start time from the actual player position so it
+ * works even if the audio thread runs slightly late.
+ */
+let musicPlayers: [AudioPlayer | null, AudioPlayer | null] = [null, null];
+/** Index of the player currently carrying the music (0 or 1). */
+let activeMusicSlot = 0;
+/** Timer that starts the next crossfade. */
+let crossfadeTimer: ReturnType<typeof setTimeout> | null = null;
+/**
+ * The ramp timers are kept in two pools on purpose.
+ *
+ * A voice starts and stops every couple of seconds in this game, so the duck
+ * ramp and the crossfade ramp are constantly in flight at the same time. When
+ * they shared one list, a duck cancelled the crossfade half way through: the
+ * outgoing player stayed loud, the incoming one stayed quiet, and the timer that
+ * hands over to the next track never ran, so two copies of the music played on
+ * top of each other.
+ */
+let duckRampTimers: ReturnType<typeof setTimeout>[] = [];
+let crossfadeRampTimers: ReturnType<typeof setTimeout>[] = [];
+
 let sfxEnabled = true;
 let musicEnabled = true;
 let audioModeReady = false;
@@ -211,12 +255,55 @@ export function setSpeechActive(active: boolean): void {
   releaseHeldSound();
 }
 
+/** Empties one timer pool, which is how a new ramp cancels the one before it. */
+function cancelTimers(pool: ReturnType<typeof setTimeout>[]): ReturnType<typeof setTimeout>[] {
+  pool.forEach((timer) => clearTimeout(timer));
+  return [];
+}
+
+/**
+ * The overall music level is kept apart from the crossfade, and the volume of
+ * each player is always the two multiplied together.
+ *
+ * That separation is the whole point: a word starts and stops every couple of
+ * seconds in this game, so a duck ramp and a loop crossfade are in flight at the
+ * same time constantly. When both wrote `player.volume` directly, a duck in the
+ * middle of a crossfade either pulled the fading-out track back up or left the
+ * incoming one silent, and the hand over never finished.
+ */
+let musicLevel = MUSIC_VOLUME;
+/** Crossfade gain per player: one swells while the other fades. */
+let slotGain: [number, number] = [1, 0];
+
+/** Writes every player's real volume from the level and the crossfade gain. */
+function applyMusicGain(): void {
+  musicPlayers.forEach((player, slot) => {
+    if (player === null) return;
+    try {
+      player.volume = Math.max(0, Math.min(1, musicLevel * (slotGain[slot] ?? 0)));
+    } catch {
+      // The player was released mid ramp, which is not worth a word in the log.
+    }
+  });
+}
+
+/**
+ * Fades the music down under the voice, or back up once it has stopped. A jump
+ * from one level to another clicks; a third of a second does not, and it is
+ * short enough that no word is spoken over loud music.
+ */
 function duckMusic(active: boolean): void {
-  if (musicPlayer === null) return;
-  try {
-    musicPlayer.volume = active ? MUSIC_DUCKED : MUSIC_VOLUME;
-  } catch (error) {
-    console.warn('EvoABC could not duck the music.', error);
+  const target = active ? MUSIC_DUCKED : MUSIC_VOLUME;
+  duckRampTimers = cancelTimers(duckRampTimers);
+  const from = musicLevel;
+  const stepMs = DUCK_FADE_MS / FADE_STEPS;
+  for (let step = 1; step <= FADE_STEPS; step += 1) {
+    duckRampTimers.push(
+      setTimeout(() => {
+        musicLevel = from + (target - from) * (step / FADE_STEPS);
+        applyMusicGain();
+      }, stepMs * step),
+    );
   }
 }
 
@@ -227,32 +314,181 @@ export function playRoar(): void {
   playSfx(pick);
 }
 
+/**
+ * How long the music WAV file plays before we crossfade to the second player,
+ * in milliseconds. This must be less than the actual file length. We use a
+ * conservative estimate; if it fires early the second player just starts a bit
+ * ahead of the loop point, which is still gap-free.
+ *
+ * The actual crossfade window is CROSSFADE_MS long: during that window the
+ * outgoing player fades to 0 and the incoming one ramps up from 0 to the
+ * current target volume.
+ */
+const MUSIC_LOOP_MS = 15_752; // the real length of assets/audio/music.wav, at 44.1 kHz
+const CROSSFADE_MS = 1_600; // 1.6 s overlap; smooth without eating the loop
+const CROSSFADE_STEPS = 18;
+
+/** The track length, from the player itself once it has loaded the file. */
+function loopMsFor(player: AudioPlayer | null): number {
+  const seconds = player?.duration ?? 0;
+  return Number.isFinite(seconds) && seconds > 1 ? Math.round(seconds * 1000) : MUSIC_LOOP_MS;
+}
+
+function clearCrossfadeTimer(): void {
+  if (crossfadeTimer !== null) {
+    clearTimeout(crossfadeTimer);
+    crossfadeTimer = null;
+  }
+}
+
+/**
+ * Creates a fresh player for the music track, starting silent so it can be
+ * faded in without a pop.
+ */
+function createMusicPlayer(): AudioPlayer | null {
+  try {
+    const p = createAudioPlayer(MUSIC);
+    p.volume = 0;
+    p.loop = false; // we manage looping manually for gapless playback
+    return p;
+  } catch (error) {
+    console.warn('EvoABC could not create music player.', error);
+    return null;
+  }
+}
+
+/**
+ * Crossfades from the current active player to the next one, then schedules
+ * the next crossfade. This creates a gapless, bump-free loop for the music.
+ */
+function triggerCrossfade(): void {
+  if (!musicEnabled) return;
+  const currentSlot = activeMusicSlot;
+  const nextSlot = currentSlot === 0 ? 1 : 0;
+  const outgoing = musicPlayers[currentSlot];
+  let incoming = musicPlayers[nextSlot];
+
+  // Recreate the incoming player if it was released.
+  if (incoming === null) {
+    incoming = createMusicPlayer();
+    musicPlayers[nextSlot] = incoming;
+  }
+  if (incoming === null) return;
+
+  // Start the incoming track from its first sample at silence, then play it.
+  try {
+    slotGain[nextSlot] = 0;
+    applyMusicGain();
+    incoming.seekTo(0);
+    incoming.play();
+  } catch {
+    // A broken player is not worth a crash; the other one can finish the loop.
+    return;
+  }
+
+  // Ramp the incoming player up and the outgoing one down over CROSSFADE_MS.
+  crossfadeRampTimers = cancelTimers(crossfadeRampTimers);
+  const stepMs = CROSSFADE_MS / CROSSFADE_STEPS;
+  const fromOut = slotGain[currentSlot] ?? 1;
+  for (let step = 1; step <= CROSSFADE_STEPS; step += 1) {
+    const frac = step / CROSSFADE_STEPS;
+    crossfadeRampTimers.push(
+      setTimeout(() => {
+        slotGain[nextSlot] = frac;
+        slotGain[currentSlot] = fromOut * (1 - frac);
+        applyMusicGain();
+      }, stepMs * step),
+    );
+  }
+
+  // After the overlap the old player is done: silence it and park it at zero so
+  // it is ready to be the incoming one next time round.
+  crossfadeRampTimers.push(
+    setTimeout(() => {
+      try {
+        outgoing?.pause();
+        outgoing?.seekTo(0);
+      } catch {
+        // already gone
+      }
+      slotGain[currentSlot] = 0;
+      activeMusicSlot = nextSlot;
+      slotGain[nextSlot] = 1;
+      applyMusicGain();
+    }, CROSSFADE_MS + 100),
+  );
+
+  // The next hand over starts one crossfade before this track ends, counted
+  // from right now. Timing it from here rather than from the end of the fade is
+  // what keeps the loop from creeping: every cycle plays exactly one track
+  // length less the overlap, so the music never runs ahead of itself.
+  clearCrossfadeTimer();
+  crossfadeTimer = setTimeout(triggerCrossfade, Math.max(1000, loopMsFor(incoming) - CROSSFADE_MS));
+}
+
 export function startMusic(): void {
   if (!musicEnabled) return;
-  try {
-    if (musicPlayer === null) {
-      musicPlayer = createAudioPlayer(MUSIC);
-      // Deliberately well under the sound effects: it is a background hum, not
-      // something a child should have to talk over. It also drops further
-      // whenever the spelling voice speaks.
-      musicPlayer.volume = speechActive ? MUSIC_DUCKED : MUSIC_VOLUME;
-      musicPlayer.loop = true;
+
+  // If we already have a running music setup, nothing to do.
+  if (musicPlayers[activeMusicSlot] !== null) {
+    try {
+      musicPlayers[activeMusicSlot]?.play();
+    } catch {
+      // ignore
     }
-    musicPlayer.play();
+    return;
+  }
+
+  try {
+    // Slot 0 starts playing immediately, slot 1 waits in reserve.
+    const p0 = createMusicPlayer();
+    const p1 = createMusicPlayer();
+    musicPlayers = [p0, p1];
+    activeMusicSlot = 0;
+
+    if (p0 === null) return;
+
+    const targetVol = speechActive ? MUSIC_DUCKED : MUSIC_VOLUME;
+    slotGain = [1, 0];
+    musicLevel = targetVol;
+    // Fade in from silence so the loop does not pop into existence.
+    p0.seekTo(0);
+    p0.play();
+    duckRampTimers = cancelTimers(duckRampTimers);
+    const stepMs = 600 / FADE_STEPS;
+    for (let step = 1; step <= FADE_STEPS; step += 1) {
+      duckRampTimers.push(
+        setTimeout(() => {
+          musicLevel = targetVol * (step / FADE_STEPS);
+          applyMusicGain();
+        }, stepMs * step),
+      );
+    }
+
+    // The first hand over starts one crossfade before the track ends.
+    clearCrossfadeTimer();
+    crossfadeTimer = setTimeout(triggerCrossfade, Math.max(1000, loopMsFor(p0) - CROSSFADE_MS));
   } catch (error) {
     console.warn('EvoABC could not start the music.', error);
   }
 }
 
 export function stopMusic(): void {
+  clearCrossfadeTimer();
+  duckRampTimers = cancelTimers(duckRampTimers);
+  crossfadeRampTimers = cancelTimers(crossfadeRampTimers);
   try {
-    musicPlayer?.pause();
+    musicPlayers.forEach((p) => p?.pause());
   } catch (error) {
     console.warn('EvoABC could not stop the music.', error);
   }
 }
 
 export function releaseAudio(): void {
+  clearCrossfadeTimer();
+  duckRampTimers = cancelTimers(duckRampTimers);
+  crossfadeRampTimers = cancelTimers(crossfadeRampTimers);
+  slotGain = [1, 0];
   if (holdTimer !== null) {
     clearTimeout(holdTimer);
     holdTimer = null;
@@ -266,10 +502,12 @@ export function releaseAudio(): void {
     }
   });
   players.clear();
-  try {
-    musicPlayer?.remove();
-  } catch {
-    // already gone
-  }
-  musicPlayer = null;
+  musicPlayers.forEach((p) => {
+    try {
+      p?.remove();
+    } catch {
+      // already gone
+    }
+  });
+  musicPlayers = [null, null];
 }

@@ -496,9 +496,12 @@ check(
 );
 
 console.log('\nThe voice that reads words out loud');
-check('a spelling is dictated with letter names', spokenLetters('CAT') === 'see, ay and tee', spokenLetters('CAT'));
-check('one letter is read as its name', spokenLetters('A') === 'ay', spokenLetters('A'));
-check('punctuation never reaches the voice', spokenLetters('c-a t!') === 'see, ay and tee', spokenLetters('c-a t!'));
+// The letter A is written "aye" rather than "ay" because several voices read a
+// bare "ay" as a short schwa, which turns the letter name into a grunt. These
+// checks pin the spelling so it cannot drift back on its own.
+check('a spelling is dictated with letter names', spokenLetters('CAT') === 'see, aye and tee', spokenLetters('CAT'));
+check('one letter is read as its name', spokenLetters('A') === 'aye', spokenLetters('A'));
+check('punctuation never reaches the voice', spokenLetters('c-a t!') === 'see, aye and tee', spokenLetters('c-a t!'));
 check('a word is said as a word, not as capitals', spokenWord('CAT') === 'Cat', spokenWord('CAT'));
 check('a single letter keeps its name', spokenWord('A') === 'A', spokenWord('A'));
 check('a spoken line gets one full stop', tidySentence('Hear the word') === 'Hear the word.', tidySentence('Hear the word'));
@@ -510,8 +513,8 @@ check(
   Object.keys(SOUND_NAMES).every((key) => (SOUND_ANCHORS[key] ?? '').length > 1),
   Object.keys(SOUND_NAMES).filter((key) => (SOUND_ANCHORS[key] ?? '').length <= 1).join(', '),
 );
-check('a spelling is dictated one letter at a time', spokenLetterList('CAT').join(',') === 'see,ay,tee', spokenLetterList('CAT').join(','));
-check('a letter name is clean for the voice', spokenLetterList('c-a t!').join(',') === 'see,ay,tee');
+check('a spelling is dictated one letter at a time', spokenLetterList('CAT').join(',') === 'see,aye,tee', spokenLetterList('CAT').join(','));
+check('a letter name is clean for the voice', spokenLetterList('c-a t!').join(',') === 'see,aye,tee');
 // A child cannot tell "nap" from "nat" out of a phone speaker, so the ending of
 // a word is the thing a dictation has to make certain. These are the rules that
 // keep it that way for every word in the curriculum, not just the one that was

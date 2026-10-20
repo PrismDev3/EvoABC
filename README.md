@@ -268,13 +268,24 @@ its press peaks at -7.9 dB, carries an RMS of -31 dB, and is over in about 20 ms
 There are three near identical presses and the app picks one at random for each
 tap, so a row of six letter tiles does not sound like a machine gun.
 
+**The music loops without a seam.** `music.wav` is 15.752 s long, and a single
+player has to seek back to the start while the audio thread is still running,
+which is heard as a click or a tiny hole on every loop. `src/audio/sfx.ts` keeps
+two players and hands over 1.6 s before the end of the track: the outgoing one
+fades out while the incoming one starts from its first sample at silence. The
+hand over is timed from the length the player itself reports, counted from the
+start of each cycle, so a long session never creeps ahead of the music. Ducking
+under the voice is a separate ramp multiplied on top of the crossfade gain, which
+is why a word that starts in the middle of a hand over cannot leave both players
+at half volume.
+
 **The voice is paced in one unit the whole app shares.** A speed of 1 means the
 pace the system itself calls normal speech, and every other speed is a fraction
 of it, so the settings screen is honest about what a child will hear
 (`src/lib/speechProfile.ts`). `expo-speech` scales that number again inside its
 iOS layer, which is why the conversion is written down once, next to the check
 that proves it. Words can be said slowly, sounded out chunk by chunk (`d, aw, l,
-f, ih, n` then `dolphin`), or spelled with letter names (`see, ay and tee`), and
+f, ih, n` then `dolphin`), or spelled with letter names (`see, aye and tee`), and
 a queue makes sure only one voice is ever talking.
 
 **A word has a pace band, and silence does the slowing down.** Dragging a
