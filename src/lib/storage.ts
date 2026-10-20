@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { PlayerProfile, WordTag } from '../types';
 import { STARTER_COINS, STARTER_GEMS } from '../game/economy';
 import { DEFAULT_REMINDER_TIMES } from '../game/reminders';
+import { DEFAULT_SENTENCE_PACE, DEFAULT_WORD_PACE, nearestPace } from './speechProfile';
 
 export const PROFILE_VERSION = 2;
 const STORAGE_KEY = 'evoabc:profile:v1';
@@ -44,10 +45,10 @@ export function defaultProfile(): PlayerProfile {
       music: true,
       haptics: true,
       speech: true,
-      speechRate: 0.82,
+      speechRate: DEFAULT_SENTENCE_PACE,
       voiceId: null,
       voiceName: null,
-      dictationRate: 0.72,
+      dictationRate: DEFAULT_WORD_PACE,
       // Reminders start off on purpose. iOS only shows the permission prompt
       // once, so it is asked for when a grown up turns them on, or from the
       // card on the home screen, rather than in the middle of first run.
@@ -95,6 +96,12 @@ export function migrateProfile(raw: unknown): PlayerProfile {
       // A save from a build before reminders existed has no times saved, and a
       // hand edited file could hold rubbish, so the list is checked here too.
       reminderTimes: sanitiseReminderTimes((input.settings ?? {}).reminderTimes),
+      // Paces are snapped onto the three the app offers. A save made by an
+      // earlier build can hold 0.6 or 0.72, paces so slow that the voice engine
+      // stretched every vowel and the settings screen could no longer show a
+      // choice that matched, so both are moved to the nearest readable pace.
+      speechRate: nearestPace(input.settings?.speechRate ?? DEFAULT_SENTENCE_PACE),
+      dictationRate: nearestPace(input.settings?.dictationRate ?? DEFAULT_WORD_PACE),
     },
     streak: { ...base.streak, ...(input.streak ?? {}) },
     stats: {

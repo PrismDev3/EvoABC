@@ -83,13 +83,25 @@ import {
   spokenLetters,
   spokenWord,
   tidySentence,
+  wordGapMs,
 } from '../src/lib/phonemes';
 import {
   CLEARER_VOICE_STEPS,
+  DEFAULT_WORD_PACE,
+  DICTATION_CEILING,
+  DICTATION_FLOOR,
+  PACES,
+  SENTENCE_PITCH,
   SPEECH_FASTEST,
   SPEECH_SLOWEST,
+  WORD_PITCH,
   classifyVoice,
+  dictatedPace,
+  dictationPaceReport,
+  languageForVoice,
+  nearestPace,
   rankVoice,
+  speechMsFor,
   speechPacePercent,
   speechRateFor,
   voiceIsClear,
@@ -646,6 +658,106 @@ check('an Android voice reads clearly', androidVoice.kind === 'standard' && voic
 check(
   'the clearer voice hint names where to tap',
   CLEARER_VOICE_STEPS.includes('Accessibility') && CLEARER_VOICE_STEPS.includes('Voices'),
+);
+
+console.log('\nHow clearly a word is read aloud');
+// Dragging a voice out does not make it clearer. At 72% of normal the synthesiser
+// stretches every vowel and flattens the melody, which is the machine voice this
+// app is trying not to have; the pause between repeats is what a person does.
+// These rules hold the whole voice inside that band, for every word.
+check('a word is never dictated below the clarity floor', dictatedPace(0.4) === DICTATION_FLOOR, String(dictatedPace(0.4)));
+check('the old 72% dictation pace is lifted into the band', dictatedPace(0.72) >= DICTATION_FLOOR - 1e-9, String(dictatedPace(0.72)));
+check('a word is never read faster than ordinary speech', dictatedPace(1.4) === DICTATION_CEILING, String(dictatedPace(1.4)));
+check(
+  'the last pass of a word is slower than the first',
+  dictatedPace(0.9, 0.9, 5) < dictatedPace(0.9, 1, 5),
+  `${dictatedPace(0.9, 0.9, 5)} vs ${dictatedPace(0.9, 1, 5)}`,
+);
+check(
+  'a long word is given more room than a short one',
+  dictatedPace(0.9, 1, 12) < dictatedPace(0.9, 1, 3),
+  `${dictatedPace(0.9, 1, 12)} vs ${dictatedPace(0.9, 1, 3)}`,
+);
+check(
+  'a saved pace from an older build snaps onto a pace the settings screen offers',
+  [0.6, 0.72, 0.82, 0.9, 1].every((rate) => PACES.some((pace) => pace.rate === nearestPace(rate))),
+  [0.6, 0.72, 0.82, 0.9, 1].map((rate) => `${rate} to ${nearestPace(rate)}`).join(', '),
+);
+check(
+  'every pace the app offers is inside the band a word can be read clearly in',
+  PACES.every((pace) => {
+    const held = dictatedPace(pace.rate);
+    return held >= DICTATION_FLOOR - 1e-9 && held <= DICTATION_CEILING + 1e-9;
+  }),
+  PACES.map((pace) => `${pace.label} ${dictatedPace(pace.rate)}`).join(', '),
+);
+check('the voice is not pitched up like a cartoon', WORD_PITCH === 1 && SENTENCE_PITCH === 1, `${WORD_PITCH}/${SENTENCE_PITCH}`);
+check(
+  'the word pace is reported to a grown up in real numbers',
+  dictationPaceReport(0.9).note.includes(`${speechPacePercent(dictatedPace(0.9, 1, 5))}%`),
+  dictationPaceReport(0.9).note,
+);
+check('a pace too slow to read clearly is called out rather than offered', dictationPaceReport(0.6).clear === false);
+check('a British voice is read with British phonetics', languageForVoice({ language: 'en-GB' }) === 'en-GB', languageForVoice({ language: 'en-GB' }));
+check('an Android voice name with an underscore is understood', languageForVoice({ language: 'en_us' }) === 'en-US', languageForVoice({ language: 'en_us' }));
+check(
+  'a voice that names no language falls back to US English',
+  languageForVoice(null) === 'en-US' && languageForVoice({}) === 'en-US',
+);
+check('a gap after a word is most of a second', wordGapMs(3) >= 600, String(wordGapMs(3)));
+check('a longer word earns a longer gap', wordGapMs(12) > wordGapMs(3), `${wordGapMs(12)} vs ${wordGapMs(3)}`);
+check(
+  'a short word is followed by more silence than the word itself takes to say',
+  ['NAP', 'MAP', 'SHIP', 'CAKE'].every((word) => wordGapMs(word.length) > speechMsFor(`${spokenWord(word)}.`, dictatedPace(DEFAULT_WORD_PACE, 1, word.length))),
+);
+
+const curriculumWords = ALL_LEVELS.flatMap((level) => level.words).map((word) => word.word);
+const asSaid = (word: string): string => `${spokenWord(word)}.`;
+check(
+  'every school word is said twice or more in a practice dictation',
+  curriculumWords.every((word) => dictationSteps(word, 'practice').filter((step) => step.text === asSaid(word)).length >= 2),
+  curriculumWords.filter((word) => dictationSteps(word, 'practice').filter((step) => step.text === asSaid(word)).length < 2).slice(0, 6).join(', '),
+);
+check(
+  'every school word is said three times in a test',
+  curriculumWords.every((word) => {
+    const plan = dictationSteps(word, 'test');
+    return plan.length === 3 && plan.every((step) => step.text === asSaid(word));
+  }),
+  curriculumWords.filter((word) => dictationSteps(word, 'test').some((step) => step.text !== asSaid(word))).slice(0, 6).join(', '),
+);
+check(
+  'no school word is ever read outside the band at the pace the app starts on',
+  curriculumWords.every((word) =>
+    [...dictationSteps(word, 'practice'), ...dictationSteps(word, 'test'), ...endingHintSteps(word)].every((step) => {
+      const pace = dictatedPace(DEFAULT_WORD_PACE, step.speedFactor, word.length);
+      return pace >= DICTATION_FLOOR - 1e-9 && pace <= DICTATION_CEILING + 1e-9;
+    }),
+  ),
+  curriculumWords
+    .filter((word) =>
+      [...dictationSteps(word, 'practice'), ...dictationSteps(word, 'test'), ...endingHintSteps(word)].some(
+        (step) => dictatedPace(DEFAULT_WORD_PACE, step.speedFactor, word.length) < DICTATION_FLOOR - 1e-9,
+      ),
+    )
+    .slice(0, 6)
+    .join(', '),
+);
+check(
+  'every word is followed by a real gap before anything else is said',
+  curriculumWords.every((word) => {
+    const plan = dictationSteps(word, 'practice');
+    return plan.every((step, index) => step.text !== asSaid(word) || index === plan.length - 1 || step.pauseAfterMs >= 600);
+  }),
+);
+check(
+  'the sounds of a word never run into each other',
+  curriculumWords.every((word) => dictationSteps(word, 'practice').every((step) => step.pauseAfterMs >= 280 || step.pauseAfterMs === 0)),
+);
+check(
+  'a word slowed right down is still held inside the band',
+  dictatedPace(0.6, 0.9, 4) >= DICTATION_FLOOR - 1e-9,
+  String(dictatedPace(0.6, 0.9, 4)),
 );
 
 console.log('\nCurriculum integrity');

@@ -104,9 +104,17 @@ Every word is heard through the voice built into the device, which is why the
 spelling sounds like a person rather than a computer. A grown up can pick the
 voice and its dictation speed in **Settings > Parent zone > Spelling voice**,
 which also says plainly whether the voice in use is one of the clear ones or one
-of the muddy voices that come with the phone. Downloading an Enhanced or Premium
-voice in the device settings (Accessibility > Spoken Content > Voices) gives the
-very clearest one, and the app switches to it on its own.
+of the muddy voices that come with the phone, and prints the pace a child will
+actually hear as a percentage. Downloading an Enhanced or Premium voice in the
+device settings (Accessibility > Spoken Content > Voices) gives the very clearest
+one, and the app switches to it on its own.
+
+A word is read at a speaking pace, not dragged out. Past about three quarters of
+normal speed a synthesiser stops being clearer and starts stretching every vowel
+and evening out its melody, which is what a machine voice sounds like; the word
+is separated from the next one by most of a second of silence instead, because
+silence costs a word nothing. That gap is why "nap" and the word after it never
+arrive as one sound.
 
 ## Project layout
 
@@ -124,7 +132,7 @@ src/
   data/units/               the ten teaching units, one word bank per unit
   game/                     pure rules: economy, session, testplan, phonics, loot, streak
   lib/tts.ts                the voice: queues utterances, speaks lines and words
-  lib/speechProfile.ts      pure: the pace band and the voice ranking, both checked
+  lib/speechProfile.ts      pure: the pace band, the word pace and the voice ranking, all checked
   lib/                      storage and touch feedback
   navigation/Navigator.tsx  lightweight animated navigator
   screens/                  onboarding, home, map, play, result, eggs, collection, streak, settings, test, testSession
@@ -268,6 +276,26 @@ iOS layer, which is why the conversion is written down once, next to the check
 that proves it. Words can be said slowly, sounded out chunk by chunk (`d, aw, l,
 f, ih, n` then `dolphin`), or spelled with letter names (`see, ay and tee`), and
 a queue makes sure only one voice is ever talking.
+
+**A word has a pace band, and silence does the slowing down.** Dragging a
+synthesiser out to 72% of normal, which is where this app started, does not make
+a word easier to follow: it stretches the vowels, flattens the melody and softens
+the bursts that separate one consonant from the next. That is the difference
+between a person and a machine reading a list. So a dictated word is held inside
+78% to 100% of normal speech (`dictatedPace`), a longer word earns a little more
+room, and each repeat is separated by a gap of most of a second, sized by the
+word (`wordGapMs`). The last pass, the one a child copies, is the slowest one in
+the band. The same three rules decide the sentences too: pitch is the voice's
+own, never lifted to sound friendly, and the engine is handed the language of the
+voice that was picked, so a British or Australian voice reads with its own
+phonetics instead of being pushed through US English.
+
+At the starting pace the word NAP now measures: said at 90%, its sounds at 87%
+with 300 ms between them, said again at 86% after 680 ms of silence, and copied
+at 81%. `npm run selfcheck` asserts that shape for all 288 curriculum words, and
+that no word can ever be dictated outside the band, whatever pace a saved file
+holds. A save from an older build is snapped onto one of the three paces the
+settings screen offers instead of being obeyed.
 
 ## Tech notes
 

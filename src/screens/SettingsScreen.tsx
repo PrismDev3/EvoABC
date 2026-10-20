@@ -27,22 +27,12 @@ import { CADENCES, cadenceFor, clockList } from '../game/reminders';
 import { useGame } from '../state/GameContext';
 import { useNav } from '../navigation/Navigator';
 import { TAG_LABELS, TAG_ORDER } from '../data/words';
-import { activeVoiceReport, englishVoices, getVoiceId, speakLine, speakWord } from '../lib/tts';
+import { activeVoiceReport, englishVoices, getVoiceId, speakLine, soundOut } from '../lib/tts';
+import { PACES, dictationPaceReport } from '../lib/speechProfile';
 import { lifetimeXp } from '../game/economy';
 import { haptic } from '../lib/feedback';
 import { playSfx } from '../audio/sfx';
 
-const SPEEDS: { label: string; rate: number }[] = [
-  { label: 'Slow', rate: 0.6 },
-  { label: 'Normal', rate: 0.82 },
-  { label: 'Fast', rate: 1 },
-];
-/** School words are dictated slowly so every sound can be heard. */
-const DICTATION_SPEEDS: { label: string; rate: number }[] = [
-  { label: 'Slow', rate: 0.6 },
-  { label: 'Normal', rate: 0.72 },
-  { label: 'Fast', rate: 0.9 },
-];
 const VOICE_ROWS = 8;
 const GATE_CHOICES = [24, 28, 32, 21];
 const GATE_ANSWER = 28;
@@ -132,6 +122,9 @@ export default function SettingsScreen() {
   // Judged from the installed list, so a phone with only the basic voices is
   // told the truth rather than a comfortable lie.
   const voiceReport = useMemo(() => activeVoiceReport(), [voices, settings.voiceId]);
+  // The real numbers behind the word voice, so a grown up is told what a child
+  // will actually hear instead of being handed three unlabelled buttons.
+  const paceReport = useMemo(() => dictationPaceReport(settings.dictationRate), [settings.dictationRate]);
 
   const answerGate = (value: number) => {
     if (value === GATE_ANSWER) {
@@ -207,8 +200,9 @@ export default function SettingsScreen() {
           <Text style={type.h2}>Reading pace</Text>
         </View>
         <Text style={type.small}>
-          Two voices to set: the one that reads sentences, and the one that dictates words. Normal is the pace the phone itself calls
-          normal, and Slow is about three fifths of it.
+          Two voices to set: the one that reads sentences, and the one that dictates words. A pace is a fraction of the speed the phone
+          itself calls normal. Neither can be dragged slow enough to sound like a machine, because past about three quarters of normal a
+          voice text stops being clearer and only gets mushier. The gap between repeats does the slowing down instead.
         </Text>
 
         <View style={styles.paceGroup}>
@@ -221,16 +215,15 @@ export default function SettingsScreen() {
                 Sentence voice
               </Text>
               <Text style={type.small}>Hints, rule cards and praise</Text>
+            </View>              <PillButton
+                label="Hear it"
+                tone="gem"
+                icon={<SpeakerIcon size={15} color={colors.gemDark} />}
+                onPress={() => speakLine('Listen carefully, then build the word.')}
+              />
             </View>
-            <PillButton
-              label="Hear it"
-              tone="gem"
-              icon={<SpeakerIcon size={15} color={colors.gemDark} />}
-              onPress={() => speakLine('Listen carefully, then build the word.')}
-            />
-          </View>
-          <View style={styles.speedRow}>
-            {SPEEDS.map((speed) => (
+            <View style={styles.speedRow}>
+              {PACES.map((speed) => (
               <PillButton
                 key={speed.label}
                 label={speed.label}
@@ -253,18 +246,18 @@ export default function SettingsScreen() {
               <Text style={type.bodyBold} numberOfLines={1}>
                 Word voice
               </Text>
-              <Text style={type.small}>Spelling words, said twice and a little slower than a sentence</Text>
+              <Text style={type.small}>Spelling words, sounded out and said again with a gap between</Text>
             </View>
             <PillButton
-              label="Hear it"
+              label="Hear a word"
               tone="grape"
               icon={<MicIcon size={15} color={colors.grapeDark} />}
-              onPress={() => speakWord('MAP')}
+              onPress={() => soundOut('MAP')}
             />
           </View>
-          <Text style={type.small}>Tap Hear it and check the last sound of the word is clear.</Text>
+          <Text style={type.small}>Hear a word plays the whole thing a child gets: the word, its sounds, then the word twice.</Text>
           <View style={styles.speedRow}>
-            {DICTATION_SPEEDS.map((speed) => (
+            {PACES.map((speed) => (
               <PillButton
                 key={`dictation-${speed.label}`}
                 label={speed.label}
@@ -274,6 +267,7 @@ export default function SettingsScreen() {
               />
             ))}
           </View>
+          <Text style={type.small}>{paceReport.note}</Text>
         </View>
         <Divider />
         <InfoRow label="Works without internet" value="Yes, everything is on the device" />

@@ -87,7 +87,7 @@ export default function HomeScreen() {
 
   const greetDino = () => {
     haptic('medium');
-    speak(`${equippedSkin.name}. ${stage.name}`, { pitch: 1.05 });
+    speak(`${equippedSkin.name}. ${stage.name}`);
     playRoar();
   };
 

@@ -324,6 +324,18 @@ export function soundOutSteps(input: string): SoundStep[] | null {
   });
 }
 
+/**
+ * The silence after a word before the next thing is said, in milliseconds.
+ *
+ * It grows with the word, because a long word takes longer to say and therefore
+ * needs a longer rest behind it before the next one starts; a gap sized for CAT
+ * would run straight into the front of TYRANNOSAURUS.
+ */
+export function wordGapMs(letters: number): number {
+  const clean = Number.isFinite(letters) ? Math.max(0, Math.min(14, Math.round(letters))) : 0;
+  return 560 + clean * 40;
+}
+
 /** One thing the voice says, as data. src/lib/tts.ts turns these into speech. */
 export interface SpeechStep {
   text: string;
@@ -352,18 +364,26 @@ function asSentence(text: string): string {
  *   with the last pass a little slower. A test that read the sounds out loud
  *   would not be a test, so a miss is answered with the ending instead
  *   (endingHintSteps below), which is what a teacher does when asked.
+ *
+ * Neither phase drags the voice out to make itself clear. Each pass is a normal
+ * reading of the word, a hair slower every time, and the passes are separated by
+ * most of a second of silence, sized by wordGapMs below so a longer word gets a
+ * longer rest. That is how a person dictates a word, and it keeps every
+ * consonant intact, where a very slow reading would smear them. The pace itself
+ * is held inside the band in src/lib/speechProfile.ts.
  */
 export function dictationSteps(word: string, phase: 'practice' | 'test' = 'practice'): SpeechStep[] {
   const text = spokenWord(word);
   if (text.length === 0) return [];
   const said: SpeechStep = { text: asSentence(text), speedFactor: 1, pauseAfterMs: 0 };
+  const gap = wordGapMs(text.length);
 
   // The last pass is always the slowest one, because that is the pass a child
   // copies: the last thing heard is what they say back to themselves.
   if (phase === 'test') {
     return [
-      { ...said, speedFactor: 1, pauseAfterMs: 560 },
-      { ...said, speedFactor: 0.96, pauseAfterMs: 720 },
+      { ...said, speedFactor: 1, pauseAfterMs: gap },
+      { ...said, speedFactor: 0.96, pauseAfterMs: gap + 120 },
       { ...said, speedFactor: 0.9 },
     ];
   }
@@ -372,7 +392,7 @@ export function dictationSteps(word: string, phase: 'practice' | 'test' = 'pract
   if (sounds === null) {
     // Nothing worth sounding out, so the word is simply said twice, slowly.
     return [
-      { ...said, speedFactor: 1, pauseAfterMs: 620 },
+      { ...said, speedFactor: 1, pauseAfterMs: gap },
       { ...said, speedFactor: 0.9 },
     ];
   }
@@ -380,17 +400,17 @@ export function dictationSteps(word: string, phase: 'practice' | 'test' = 'pract
   // spelling SHIP proves nothing, so a word never acts as its own anchor.
   const plain = text.toLowerCase();
   return [
-    { ...said, pauseAfterMs: 430 },
+    { ...said, pauseAfterMs: gap },
     ...sounds.map((step) => {
       const useAnchor = step.anchor.length > 0 && step.anchor.toLowerCase() !== plain;
       return {
         text: useAnchor ? `${step.sound}, as in ${step.anchor}.` : `${step.sound}.`,
-        speedFactor: 0.98,
-        pauseAfterMs: 230,
+        speedFactor: 0.97,
+        pauseAfterMs: 300,
       };
     }),
-    { ...said, speedFactor: 0.96, pauseAfterMs: 380 },
-    { ...said, speedFactor: 0.88 },
+    { ...said, speedFactor: 0.96, pauseAfterMs: gap },
+    { ...said, speedFactor: 0.9 },
   ];
 }
 
@@ -410,7 +430,7 @@ export function endingHintSteps(word: string): SpeechStep[] {
   const last = sounds === null ? undefined : sounds[sounds.length - 1];
   if (last === undefined) return [{ text: asSentence(text), speedFactor: 0.9, pauseAfterMs: 0 }];
   return [
-    { text: asSentence(text), speedFactor: 1, pauseAfterMs: 520 },
+    { text: asSentence(text), speedFactor: 1, pauseAfterMs: Math.max(520, wordGapMs(text.length) - 120) },
     {
       text: last.anchor.length > 0 ? `It ends with ${last.sound}, as in ${last.anchor}.` : `It ends with ${last.sound}.`,
       speedFactor: 0.96,

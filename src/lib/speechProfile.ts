@@ -47,6 +47,128 @@ export function speechPacePercent(speed: number): number {
   return Math.round(speechRateFor(speed) * 100);
 }
 
+/**
+ * The band a dictated word is read in, and the reason it has a floor.
+ *
+ * Slowing a voice down does not make a word clearer past a point. A synthesiser
+ * asked for half speed does not simply talk slower: it stretches every vowel,
+ * evens out the melody and softens the little bursts that separate one consonant
+ * from the next. That is what makes a phone voice sound like a machine reading
+ * rather than a person saying a word, and it is why a word dictated at 72% of
+ * normal was easy to mishear while the same word at 90% is not.
+ *
+ * So the pacing below never goes slower than 78% of normal for a word. The work
+ * that used to be done by dragging the voice out is done by the gap between
+ * repeats instead, because silence separates two words cleanly and costs no
+ * detail in either of them. The ceiling is 100%: a word faster than ordinary
+ * speech has no upside and costs an ending.
+ */
+export const DICTATION_FLOOR = 0.78;
+export const DICTATION_CEILING = 1;
+
+/** Where a fresh install starts: the middle of the band, for both voices. */
+export const DEFAULT_SENTENCE_PACE = 0.9;
+export const DEFAULT_WORD_PACE = 0.9;
+
+/**
+ * The pace to dictate a word at.
+ *
+ * `base` is the pace a grown up chose, `factor` is how much slower this pass of
+ * the word should be than that, and `letters` buys a long word a little more
+ * room: articulation time grows with the number of sounds, so TYRANNOSAURUS at
+ * the same rate as CAT arrives as a blur. The result is always inside the band
+ * above, whatever a grown up, a saved file or a plan asks for.
+ */
+export function dictatedPace(base: number, factor = 1, letters = 4): number {
+  const asked = (Number.isFinite(base) ? base : DEFAULT_WORD_PACE) * (Number.isFinite(factor) ? factor : 1);
+  const longWord = Math.min(0.03, Math.max(0, letters - 6) * 0.006);
+  return speechRateFor(Math.min(DICTATION_CEILING, Math.max(DICTATION_FLOOR, asked - longWord)));
+}
+
+export interface PaceReport {
+  /** The pace the word is first said at. */
+  pace: number;
+  /** The pace of the last pass, the one a child copies. */
+  copyPace: number;
+  /** False for a saved pace the engine can no longer read clearly. */
+  clear: boolean;
+  /** One honest sentence for the parent zone. */
+  note: string;
+}
+
+/** What a grown up should be told about the word pace they have chosen. */
+export function dictationPaceReport(base: number, letters = 5): PaceReport {
+  const pace = dictatedPace(base, 1, letters);
+  const copyPace = dictatedPace(base, 0.9, letters);
+  const clear = Number.isFinite(base) && base >= DICTATION_FLOOR;
+  const note = clear
+    ? `Words are said at ${speechPacePercent(pace)}% of normal speed, then ${speechPacePercent(copyPace)}% for the copy pass, with a gap between each.`
+    : `Words are held at ${speechPacePercent(pace)}% of normal speed. A voice dragged slower than that stretches its vowels and smears endings, which is the machine voice this app refuses to use.`;
+  return { pace, copyPace, clear, note };
+}
+
+/**
+ * Pitch is 1 for the voice's own tone everywhere.
+ *
+ * An earlier version leaned the sentence voice up to 1.05 to sound friendly,
+ * which on a compact phone voice thins the whole spectrum and is a large part of
+ * why a helper voice reads as artificial. A person reading to a child varies
+ * their melody within a sentence; they do not raise their whole voice a tone.
+ */
+export const WORD_PITCH = 1;
+export const SENTENCE_PITCH = 1;
+
+/**
+ * The paces offered in the parent zone. Every one of them is inside the band
+ * above, so the settings screen can never hand back a pace the voice cannot read
+ * clearly, and none of the three is a lie about what a child will hear.
+ */
+export interface PaceOption {
+  label: string;
+  rate: number;
+  note: string;
+}
+
+export const PACES: PaceOption[] = [
+  { label: 'Steady', rate: 0.82, note: 'the gentlest pace that still sounds like a person' },
+  { label: 'Clear', rate: 0.9, note: 'the pace EvoABC starts on' },
+  { label: 'Brisk', rate: 1, note: 'the pace of ordinary conversation' },
+];
+
+/** Snaps a saved or hand set pace onto one of the offered paces. */
+export function nearestPace(rate: number): number {
+  if (!Number.isFinite(rate)) return DEFAULT_WORD_PACE;
+  return PACES.reduce((best, pace) => (Math.abs(pace.rate - rate) < Math.abs(best - rate) ? pace.rate : best), PACES[0]?.rate ?? DEFAULT_WORD_PACE);
+}
+
+/**
+ * Roughly how long a short utterance takes, in milliseconds.
+ *
+ * This is the number the queue uses to know when to move on when an engine
+ * forgets to call back, and it is also how the self check proves that the gap
+ * between two repeats is really a gap: measured against the word itself rather
+ * than against a guess.
+ */
+export function speechMsFor(text: string, pace: number): number {
+  const characters = Math.max(1, text.length);
+  return 240 + (characters * 68) / Math.max(0.25, speechRateFor(pace));
+}
+
+/**
+ * The language to hand the voice engine: the chosen voice's own.
+ *
+ * The app used to pass en-US for every utterance while letting a grown up pick
+ * any English voice. A British or Australian voice then read a word through the
+ * wrong set of phonetics, or was ignored outright in favour of a US one, which
+ * is a clarity bug hidden in an option nobody would think to check.
+ */
+export function languageForVoice(voice: { language?: string } | null | undefined): string {
+  const raw = (voice?.language ?? '').trim();
+  const match = /^([A-Za-z]{2})[-_]([A-Za-z]{2})/.exec(raw);
+  if (match === null) return 'en-US';
+  return `${(match[1] ?? 'en').toLowerCase()}-${(match[2] ?? 'US').toUpperCase()}`;
+}
+
 /** How much clearer one kind of voice is than another, worst last. */
 export type VoiceKind = 'premium' | 'enhanced' | 'standard' | 'compact' | 'novelty';
 

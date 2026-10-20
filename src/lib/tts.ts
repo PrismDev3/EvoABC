@@ -1,7 +1,22 @@
 import * as Speech from 'expo-speech';
 
-import { SpeechStep, dictationSteps, endingHintSteps, spokenLetterList, spokenWord, tidySentence } from './phonemes';
-import { CLEARER_VOICE_STEPS, VoiceKind, VoiceRank, classifyVoice, voiceIsClear, rankVoice, speechRateFor } from './speechProfile';
+import { SpeechStep, cleanWord, dictationSteps, endingHintSteps, spokenLetterList, spokenWord, tidySentence } from './phonemes';
+import {
+  CLEARER_VOICE_STEPS,
+  DEFAULT_SENTENCE_PACE,
+  DEFAULT_WORD_PACE,
+  SENTENCE_PITCH,
+  WORD_PITCH,
+  VoiceKind,
+  VoiceRank,
+  classifyVoice,
+  dictatedPace,
+  languageForVoice,
+  rankVoice,
+  speechMsFor,
+  speechRateFor,
+  voiceIsClear,
+} from './speechProfile';
 
 /**
  * Text to speech for EvoABC.
@@ -11,7 +26,7 @@ import { CLEARER_VOICE_STEPS, VoiceKind, VoiceRank, classifyVoice, voiceIsClear,
  * reading instead of a robot. The helpers below rank every installed voice and
  * pick the best one, and a grown up can override the choice in the parent zone.
  *
- * Three rules make the voice usable for a six year old:
+ * Four rules make the voice usable for a six year old:
  *
  * 1. Speeds are normalised in one place. An app speed of 1 means the pace the
  *    system itself calls normal, and every other speed is a fraction of it.
@@ -25,9 +40,14 @@ import { CLEARER_VOICE_STEPS, VoiceKind, VoiceRank, classifyVoice, voiceIsClear,
  *    spell it with letter names, then say the word again, with a breath between
  *    each step. The word itself is always said twice with a gap, because one
  *    pass at speed is genuinely easy to miss.
- * 4. The voice tells the rest of the app when it is talking, so the background
- *    music can drop to a whisper and reward chimes can wait. Words competing
- *    with music is the other half of why a word is hard to make out.
+ * 4. A word is read at a speaking pace, never dragged out. Slowing a synthesiser
+ *    down stretches its vowels and evens out its melody, which is the machine
+ *    voice this app is trying not to have; the gap between repeats is what makes
+ *    a word easy to follow. The band, the pitch and the voice's own language are
+ *    all decided in src/lib/speechProfile.ts. The voice tells the rest of the
+ *    app when it is talking too, so the background music drops and reward
+ *    chimes wait: words competing with music is the other half of why a word is
+ *    hard to make out.
  */
 
 export interface VoiceChoice extends VoiceRank {
@@ -35,8 +55,8 @@ export interface VoiceChoice extends VoiceRank {
 }
 
 /** App level speeds. 1 is normal grown up speech, lower is slower and kinder. */
-const DEFAULT_LINE_SPEED = 0.82;
-const DEFAULT_WORD_SPEED = 0.76;
+const DEFAULT_LINE_SPEED = DEFAULT_SENTENCE_PACE;
+const DEFAULT_WORD_SPEED = DEFAULT_WORD_PACE;
 
 let voices: VoiceChoice[] = [];
 let chosenVoiceId: string | null = null;
@@ -191,7 +211,7 @@ function reportSpeech(active: boolean): void {
 let busy = false;
 
 /** A short breath between cancelling the voice and the first sound. */
-const LEAD_IN_MS = 90;
+const LEAD_IN_MS = 130;
 
 function clearTimers(): void {
   if (queueTimer !== null) {
@@ -210,9 +230,14 @@ function clearTimers(): void {
  * out shorter than the real thing, or the next step would cut this one off.
  */
 function estimateMs(step: Step): number {
-  const characters = Math.max(1, step.text.length);
-  const rate = Math.max(0.25, speechRateFor(step.speed));
-  return 950 + (characters * 70) / rate + step.pauseAfter;
+  return Math.round(speechMsFor(step.text, step.speed) * 2.2) + 300 + step.pauseAfter;
+}
+
+/** The language the chosen voice actually speaks, so its phonetics are its own. */
+function languageOfCurrentVoice(): string {
+  const id = getVoiceId();
+  const voice = id === null ? undefined : voices.find((entry) => entry.id === id);
+  return languageForVoice(voice);
 }
 
 /** A word spoken on its own is a sentence, so it keeps its last consonant. */
@@ -260,7 +285,7 @@ function speakSteps(steps: Step[], onDone?: () => void): void {
       Speech.speak(step.text, {
         rate: speechRateFor(step.speed),
         pitch: step.pitch,
-        language: 'en-US',
+        language: languageOfCurrentVoice(),
         useApplicationAudioSession: true,
         ...(voiceId !== null ? { voice: voiceId } : {}),
         onDone: advance,
@@ -298,41 +323,52 @@ function speakSteps(steps: Step[], onDone?: () => void): void {
 export function speakLine(text: string, options: Speech.SpeechOptions = {}): void {
   const clean = tidySentence(text);
   if (clean.length === 0) return;
-  speakSteps([{ text: clean, speed: options.rate ?? lineSpeed, pitch: options.pitch ?? 1.05, pauseAfter: 0 }]);
+  speakSteps([{ text: clean, speed: options.rate ?? lineSpeed, pitch: options.pitch ?? SENTENCE_PITCH, pauseAfter: 0 }]);
 }
 
-/** Says a word once at the dictation speed. Pass rate to slow it down further. */
+/** Says a word once at the dictation pace. Pass rate to slow it down further. */
 export function speakWord(word: string, options: Speech.SpeechOptions = {}): void {
   const text = spokenWord(word);
   if (text.length === 0) return;
-  speakSteps([{ text: asSentence(text), speed: wordSpeed * (options.rate ?? 1), pitch: options.pitch ?? 1, pauseAfter: 0 }]);
+  const letters = cleanWord(word).length;
+  speakSteps([
+    {
+      text: asSentence(text),
+      speed: dictatedPace(wordSpeed * (options.rate ?? 1), 1, letters),
+      pitch: options.pitch ?? WORD_PITCH,
+      pauseAfter: 0,
+    },
+  ]);
 }
 
-/** The word as slowly as the setting allows, said twice so it can be copied. */
+/** The word twice, with a real gap, then nothing to cut off. */
 export function speakWordSlow(word: string): void {
   const text = spokenWord(word);
   if (text.length === 0) return;
   const said = asSentence(text);
-  const speed = wordSpeed * 0.7;
+  const letters = cleanWord(word).length;
   speakSteps([
-    { text: said, speed, pitch: 1, pauseAfter: 560 },
-    { text: said, speed, pitch: 1, pauseAfter: 0 },
+    { text: said, speed: dictatedPace(wordSpeed, 1, letters), pitch: WORD_PITCH, pauseAfter: 680 },
+    { text: said, speed: dictatedPace(wordSpeed, 0.9, letters), pitch: WORD_PITCH, pauseAfter: 0 },
   ]);
 }
 
 /**
  * Turns the plan a pure module built into utterances. The pace for a step is the
- * dictation pace from the settings, scaled by the factor the plan asked for, so
- * a plan can say "the same word, a little slower". Every step is spoken on its
- * own, which is what keeps a letter name or a sound from running into the next.
+ * dictation pace from the settings, scaled by the factor the plan asked for and
+ * then held inside the band a word can be read clearly in, so a plan can say
+ * "the same word, a little slower" without ever dragging the voice into the
+ * range where it stretches vowels and smears endings. Every step is spoken on
+ * its own, which is what keeps a letter name or a sound from running into the
+ * next.
  */
-function speakPlan(plan: SpeechStep[]): void {
+function speakPlan(plan: SpeechStep[], letters: number): void {
   if (plan.length === 0) return;
   speakSteps(
     plan.map((step) => ({
       text: step.text,
-      speed: wordSpeed * step.speedFactor,
-      pitch: 1,
+      speed: dictatedPace(wordSpeed, step.speedFactor, letters),
+      pitch: WORD_PITCH,
       pauseAfter: step.pauseAfterMs,
     })),
   );
@@ -344,12 +380,12 @@ function speakPlan(plan: SpeechStep[]): void {
  * table: it is the practice plan in src/lib/phonemes.ts.
  */
 export function soundOut(word: string): void {
-  speakPlan(dictationSteps(word, 'practice'));
+  speakPlan(dictationSteps(word, 'practice'), cleanWord(word).length);
 }
 
 /** One step per letter, so each letter name lands on its own. */
 function letterSteps(word: string, pauseAfter: number): Step[] {
-  return spokenLetterList(word).map((name) => ({ text: `${name},`, speed: lineSpeed, pitch: 1, pauseAfter }));
+  return spokenLetterList(word).map((name) => ({ text: `${name},`, speed: lineSpeed, pitch: SENTENCE_PITCH, pauseAfter }));
 }
 
 /** Spells the word out loud in letter names, then says it. */
@@ -363,7 +399,9 @@ export function spellOut(word: string, then?: () => void): void {
   speakSteps(
     [
       ...letters,
-      ...(text.length === 0 ? [] : [{ text: asSentence(text), speed: wordSpeed, pitch: 1, pauseAfter: 0 }]),
+      ...(text.length === 0
+        ? []
+        : [{ text: asSentence(text), speed: dictatedPace(wordSpeed, 1, cleanWord(word).length), pitch: WORD_PITCH, pauseAfter: 0 }]),
     ],
     then,
   );
@@ -380,10 +418,11 @@ export function teachWord(word: string): void {
   const letters = letterSteps(word, 260);
   if (letters.length === 0) return;
   const said = asSentence(text);
+  const count = cleanWord(word).length;
   speakSteps([
-    { text: said, speed: wordSpeed, pitch: 1, pauseAfter: 470 },
+    { text: said, speed: dictatedPace(wordSpeed, 1, count), pitch: WORD_PITCH, pauseAfter: 520 },
     ...letters,
-    { text: said, speed: wordSpeed, pitch: 1, pauseAfter: 0 },
+    { text: said, speed: dictatedPace(wordSpeed, 0.9, count), pitch: WORD_PITCH, pauseAfter: 0 },
   ]);
 }
 
@@ -396,10 +435,11 @@ export function speakSentence(sentence: string, word?: string): void {
   const text = word === undefined ? '' : spokenWord(word);
   const said = text.length === 0 ? '' : asSentence(text);
   const steps: Step[] = [];
-  if (clean.length > 0) steps.push({ text: clean, speed: lineSpeed, pitch: 1.05, pauseAfter: said.length > 0 ? 640 : 0 });
+  const count = cleanWord(word ?? '').length;
+  if (clean.length > 0) steps.push({ text: clean, speed: lineSpeed, pitch: SENTENCE_PITCH, pauseAfter: said.length > 0 ? 680 : 0 });
   if (said.length > 0) {
-    steps.push({ text: said, speed: wordSpeed, pitch: 1, pauseAfter: 560 });
-    steps.push({ text: said, speed: wordSpeed, pitch: 1, pauseAfter: 0 });
+    steps.push({ text: said, speed: dictatedPace(wordSpeed, 1, count), pitch: WORD_PITCH, pauseAfter: 620 });
+    steps.push({ text: said, speed: dictatedPace(wordSpeed, 0.9, count), pitch: WORD_PITCH, pauseAfter: 0 });
   }
   if (steps.length === 0) return;
   speakSteps(steps);
@@ -411,7 +451,7 @@ export function speakSentence(sentence: string, word?: string): void {
  * what a school test sounds like. Which is which lives in the pure plan.
  */
 export function dictateWord(word: string, phase: 'practice' | 'test' = 'practice'): void {
-  speakPlan(dictationSteps(word, phase));
+  speakPlan(dictationSteps(word, phase), cleanWord(word).length);
 }
 
 /**
@@ -421,7 +461,7 @@ export function dictateWord(word: string, phase: 'practice' | 'test' = 'practice
  * spelling what they actually heard deserves to be told what the ending was.
  */
 export function hintEnding(word: string): void {
-  speakPlan(endingHintSteps(word));
+  speakPlan(endingHintSteps(word), cleanWord(word).length);
 }
 
 /** Stops the voice and empties the queue, used when a screen closes. */
